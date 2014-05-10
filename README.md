@@ -18,4 +18,8 @@ REMOVER:
 
 
 
+RODANDO SCRIPTS SQL
 
+
+1. fonte.sql
+2. lib.sql

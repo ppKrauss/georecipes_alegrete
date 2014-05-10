@@ -37,35 +37,3 @@ CREATE OR REPLACE FUNCTION iif(BOOLEAN, anyelement, anyelement) RETURNS anyeleme
 $$ language SQL IMMUTABLE;
  
 
-CREATE OR REPLACE FUNCTION lib.regclass_exists(p_tname character varying)
-  RETURNS boolean AS
-$BODY$
-   -- verifica se uma tabela existe
-DECLARE
-  tmp regclass;
-BEGIN
-	tmp := p_tname::regclass; -- do nothing, only parsing regclass
-	RETURN true;
-        EXCEPTION WHEN SQLSTATE '3F000' THEN
-	RETURN false;
-END;
-$BODY$  language PLpgSQL IMMUTABLE;
-
-
-CREATE OR REPLACE FUNCTION lib.column_exists( -- NEW
-  -- 
-  -- Check if a column exists in a table. 
-  -- 
-  p_colname varchar,  -- column name
-  p_tname varchar,             -- table name
-  p_schema varchar DEFAULT 'public'  -- schema name
-) RETURNS BOOLEAN AS $func$
-  SELECT n::int::BOOLEAN
-  FROM (
-     SELECT COUNT(*) AS n FROM information_schema.COLUMNS -- coalesce pau, contaminado por null
-     WHERE column_name=$1 AND table_schema=$3 AND table_name=$2
-  ) AS t;
-$func$ LANGUAGE SQL IMMUTABLE;
-
-
-

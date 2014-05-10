@@ -1,7 +1,46 @@
-DROP schema lib CASCADE;
-CREATE schema lib;
+-- -- --
+-- Funções do esquema LIB.
+-- https://github.com/ppKrauss/georecipes_alegrete
+-- -- --
 
------
+CREATE schema lib;
+CREATE schema kx;
+
+-- -- --
+-- gerais uteis (LEGADOS):
+
+CREATE OR REPLACE FUNCTION lib.regclass_exists(p_tname character varying)
+  RETURNS boolean AS
+$BODY$
+   -- verifica se uma tabela existe
+DECLARE
+  tmp regclass;
+BEGIN
+	tmp := p_tname::regclass; -- do nothing, only parsing regclass
+	RETURN true;
+        EXCEPTION WHEN SQLSTATE '3F000' THEN
+	RETURN false;
+END;
+$BODY$  language PLpgSQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION lib.column_exists( -- NEW
+  -- 
+  -- Check if a column exists in a table. 
+  -- 
+  p_colname varchar,  -- column name
+  p_tname varchar,             -- table name
+  p_schema varchar DEFAULT 'public'  -- schema name
+) RETURNS BOOLEAN AS $func$
+  SELECT n::int::BOOLEAN
+  FROM (
+     SELECT COUNT(*) AS n FROM information_schema.COLUMNS -- coalesce pau, contaminado por null
+     WHERE column_name=$1 AND table_schema=$3 AND table_name=$2
+  ) AS t;
+$func$ LANGUAGE SQL IMMUTABLE;
+
+-- -- --
+-- especificas
+
 CREATE FUNCTION lib.kxrefresh_lote() RETURNS void  AS $F$
 	-- refresh do campo cache da tabela-fonte
 	UPDATE fonte.g_lote 
@@ -16,7 +55,7 @@ $F$ language SQL;
 
 CREATE OR REPLACE FUNCTION lib.r016_parallelroute_ofpolygon(
   p_geom     geometry, -- polygon,
-  p_tvias  regclass DEFAULT 'kx.eixologr_cod'::regclass, -- tabela das vias
+  p_tvias  regclass DEFAULT NULL, -- tabela das vias
   p_raio float DEFAULT 30.0,
   p_pfactor int DEFAULT 60,  -- parallel factor, score dominado por percentual de cobertura dos trechos paralelos (60%)
   p_angular_factor float DEFAULT 2.5, -- maior que 1.45 (travessia a mais que 45 garauss), menor que 5.0
@@ -35,6 +74,9 @@ DECLARE
   v_exeaux      text;
   v_stop BOOLEAN := false;  -- para fazer mais um loop depois de chegar ao fim
 BEGIN
+   IF p_tvias IS NULL
+      p_tvias :='kx.eixologr_cod'::regclass;
+   END IF;
    IF p_raio<1.0 OR p_raio>100.0 THEN
         Raise Exception 'Raio de proximidade com ruas fora do intervalo 1.0 a 100.0 metros';
    END IF;
@@ -952,32 +994,231 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_seg(
 $func$ language PLpgSQL VOLATILE;
  
 
----------
-----LEGADOS:
+--------------
+--------------
+-- receitas de http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R008
+--
 
-CREATE OR REPLACE FUNCTION lib.int4(varchar) returns int4 AS $$
-   -- pegadinha no casting varchar to int4:
-   SELECT $1::text::int4;
-$$ language SQL IMMUTABLE;
- 
-CREATE OR REPLACE FUNCTION lib.iso8601xml(timestamp WITH time zone) returns varchar AS $$
-  -- http://www.w3.org/TR/NOTE-datetime
-  -- para pegar o maldito 'T' que o PG resolveu descumprir do padrão 
-  -- ver http://postgresql.1045698.n5.nabble.com/Format-string-for-ISO-8601-date-and-time-td1910959.html
-  SELECT translate($1::varchar, ' ', 'T')||':00'; -- ou substring
-$$ language SQL IMMUTABLE;
-
-CREATE FUNCTION lib.regclass_exists(p_tname varchar) RETURNS BOOLEAN AS $f$
-   -- verifica se uma tabela existe
-DECLARE
-  tmp regclass;
+CREATE FUNCTION lib.r008_err_range(float,integer,float,float,text) RETURNS void AS $F$  
 BEGIN
-	tmp := p_tname::regclass; -- do nothing, only parsing regclass
-	RETURN true;
-        EXCEPTION WHEN SQLSTATE '3F000' THEN
-	RETURN false;
+   IF $1<$3 OR $1>$4 THEN
+        Raise Exception 'Parametro #% (=%), %, fora de intervalo seguro',$2,$1,$5;
+   END IF;
 END;
-$f$ language PLpgSQL IMMUTABLE;
+$F$ LANGUAGE PLpgSQL IMMUTABLE;
+ 
+CREATE OR REPLACE FUNCTION lib.r008a_quadra(
+  -- Cria kx.eixologr_cod e a partir dela a kx.quadraccvia
+  p_width_via  float DEFAULT 0.5,  -- meia largura das vias (somar a p_reduz)
+  p_reduz      float DEFAULT 0.5,  -- raio para o buffer de redução
+  p_area_min   float DEFAULT 10.0, -- área minima da quadra
+  p_lendetect float DEFAULT 0.15   -- comprimento para detectar via como parte (com porção mínima de 4*len)
+) RETURNS text AS $F$  -- retorna lista de gids
+DECLARE
+  v_msg    text:=format('Parametros width_via=%s, reduz=%s, area_min=%s',$1,$2,$3); -- mensagens de retorno
+BEGIN
+   PERFORM lib.r008_err_range($1, 1, 0.0,   5.0,    'meia largura da via');
+   PERFORM lib.r008_err_range($2, 2, 0.0,   5.0,    'raio do buffer de redução');
+   PERFORM lib.r008_err_range($3, 3, 0.001, 1000.0, 'area mínima da quadra');
+   PERFORM lib.r008_err_range($4, 4, 0.001, 2.0,    'comprimento para detectar via como parte');
+ 
+   -- 1. PREPARO: divisores de quadracc, dado por "malha viária" completa e conexa
+   DROP TABLE  IF EXISTS kx.eixologr_cod;
+   CREATE TABLE kx.eixologr_cod AS -- todas as fronteiras de quadra e seus códigos 
+     WITH vias AS (
+   	(SELECT 0 AS gid, 	-- ## -- rodovias rotuladas, agregadas por código
+   		codlogr::integer AS cod,
+   		'logr-ccod' AS tipo,  
+   		array_agg(gid) AS gids,  -- para JOIN 
+   		st_union(geom) AS geom   -- ou melhor st_collection? (ambos preservam buracos?)
+   	 FROM fonte.g_eixologr
+   	 WHERE codlogr>0 
+   	 GROUP BY codlogr  -- agregação dos códigos em multilines (com buracos)
+ 
+   	) UNION (      	 	-- ## -- rodovias não-rotuladas, individualizadas
+   	 SELECT 0,
+   		-1000-(row_number() OVER ()) AS cod, -- distinguivel 
+   		'logr-scod' AS tipo,  
+   		array[gid], -- para JOIN
+   		geom 
+   	 FROM fonte.g_eixologr
+   	 WHERE codlogr=0 OR codlogr IS NULL
+ 
+   	) UNION (       	-- ## -- ferrovias 
+   	 SELECT 0,  
+   		-10 AS cod, -- indistinguivel
+   		'ferrovia' AS tipo,  
+   		NULL,	    -- não faz JOIN
+   	       ST_Collect(geom) AS geom 
+   	 FROM public.g_ferrovia
+ 
+   	) UNION (        	-- ## -- hidrovias
+   	 SELECT 0,  
+   		-100 AS cod, -- indistinguivel
+   		'rio' AS tipo,  
+   		NULL,	     -- não faz JOIN
+   	       ST_Collect(geom) AS geom 
+   	 FROM public.g_hidrografia_linha
+   	)
+      )  SELECT 	(row_number() OVER ()) AS gid, 
+   			v.cod, tipo,
+   			ST_Intersection(v.geom ,t.geom) AS geom 
+         FROM vias v, (
+   	       SELECT ST_setSRID( ST_Extent(geom), (SELECT ST_SRID(geom) FROM g_lote LIMIT 1) ) AS geom 
+   	       FROM fonte.g_lote
+   	   ) AS t;
+   ALTER TABLE kx.eixologr_cod ADD PRIMARY KEY (gid);
+   v_msg := v_msg || E'\n kx.eixologr_cod populada com '|| (SELECT count(*) FROM kx.eixologr_cod) ||' registros';
+ 
+   -- 2. Construção principal: (old "quadracc_byvias")
+   DROP TABLE  IF EXISTS kx.quadraccvia;
+   CREATE TABLE kx.quadraccvia AS 
+   SELECT (st_dump).path[1] AS gid, (st_dump).geom,
+   	NULL::int[] AS cod_vias
+   FROM (
+        SELECT ST_Dump(ST_Polygonize(geom)) -- faz a magica
+        FROM (SELECT ST_Union(geom) AS geom FROM kx.eixologr_cod) mergedlines
+   ) polys;
+   ALTER TABLE kx.quadraccvia ADD PRIMARY KEY (gid);
+ 
+   -- 3. Obtenção dos códigos das vias de entorno, e redução dos polígnos:
+   UPDATE kx.quadraccvia
+    SET cod_vias=t.cods,
+        geom = ST_Difference(quadraccvia.geom,t.geom)
+    FROM (
+       SELECT q.gid, array_agg(e.cod) AS cods, ST_Buffer(ST_Union(e.geom),$1) AS geom
+       FROM kx.eixologr_cod e INNER JOIN (SELECT *, ST_Buffer(geom,$4) AS buff FROM kx.quadraccvia) q 
+            ON e.geom && q.geom AND ST_Intersects(e.geom,q.geom)
+    	       AND ST_Length(ST_Intersection(q.buff,e.geom)) > 4.0*$4 -- elimina vizinhos e poeiras
+       GROUP BY q.gid
+    ) t
+    WHERE t.gid=quadraccvia.gid;
+   IF ($2>0.0) THEN 
+       UPDATE kx.quadraccvia SET geom = ST_Buffer(geom, -1.0*$2); -- aplicar geral
+   END IF;
+   IF ($3>0.0) THEN 
+       DELETE FROM kx.quadraccvia WHERE ST_Area(geom)<=$3;
+   END IF;
+   v_msg := v_msg || E'\n Tabela kx.quadraccvia populada com '|| (SELECT count(*) FROM kx.quadraccvia) ||' registros';
+ 
+   RETURN v_msg;
+END;
+$F$ LANGUAGE PLpgSQL;
+ 
+CREATE FUNCTION lib.r008_gidvia2cod(bigint) RETURNS int AS $F$  
+  SELECT cod FROM kx.eixologr_cod WHERE gid=$1 
+$F$ LANGUAGE SQL IMMUTABLE;
+
+---- receita b
+CREATE FUNCTION lib.r008_err_exists(text) RETURNS text 
+AS $F$  
+   -- Interrompe processo ou retorna contagem da tabela.
+DECLARE
+   v_n integer; -- counter
+BEGIN
+   IF lib.regclass_exists($1) THEN 
+       EXECUTE ('SELECT count(*) FROM '|| $1) INTO v_n;
+       IF v_n >0 THEN
+           RETURN  E'\n Usando '|| v_n ||' registros de '||$1;
+       ELSE  
+           Raise Exception 'Preparar % não-vazio com lib.r008a_quadra()',$1;
+       END IF;
+   ELSE
+       Raise Exception 'Falta criar % com lib.r008a_quadra()',$1;
+   END IF;
+END;
+$F$ LANGUAGE PLpgSQL IMMUTABLE;
+ 
+
+CREATE OR REPLACE  FUNCTION lib.r008b_seg(p_width_via double precision DEFAULT 0.5, p_reduz double precision DEFAULT 0.5, p_area_min double precision DEFAULT 10.0, p_cobertura double precision DEFAULT 0.51, p_simplfactor double precision DEFAULT 0.2) RETURNS text
+    LANGUAGE plpgsql
+    AS $_$  -- retorna mensagem de erro
+DECLARE
+   v_msg text := format('Parametros width_via=%s, reduz=%s, area_min=%s, cobertura=%s, simplft=%s',$1,$2,$3,$4,$5);
+BEGIN
+   PERFORM lib.r008_err_range($1, 1, 0.0, 5.0,    'largura da via');
+   PERFORM lib.r008_err_range($2, 2, 0.0, 5.0,    'raio do buffer de redução');
+   PERFORM lib.r008_err_range($3, 3, 0.0, 1000.0, 'area mínima da quadra');
+   PERFORM lib.r008_err_range($4, 4, 0.001, 1.0,  'fator de cobertura mínima');
+   PERFORM lib.r008_err_range($5, 5, 0.0, 10.0,   'step na simplificação dos segmentos');
+   v_msg := v_msg || lib.r008_err_exists('kx.eixologr_cod');
+   v_msg := v_msg || lib.r008_err_exists('kx.quadraccvia');
+ 
+   -- 1. segmentação da quadraccvia:
+   DROP TABLE IF EXISTS kx.quadraccvia_simplseg;
+   CREATE TABLE kx.quadraccvia_simplseg AS 
+      WITH prepared_quadras AS (  -- simplificando segmentos menores que 0.2m 
+          SELECT gid, cod_vias, geom,
+    	generate_series(1, ST_NPoints(geom)-1) AS s_s,
+    	generate_series(2, ST_NPoints(geom)  ) AS s_e
+          FROM (SELECT gid, cod_vias, (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,p_simplfactor)))).geom
+    	  FROM kx.quadraccvia
+          ) AS linestrings
+      ) SELECT dense_rank() over (ORDER BY gid,s_s,s_e) AS gid,
+    	   gid AS gid_quadra, -- unica por construcao
+    	   s_s AS id_seg,             cod_vias,
+    	   NULL::bigint AS gid_via,   NULL::text AS tipo_via,
+    	   NULL::bigint AS gid_marginal,  -- quando existor vizinha
+    	   NULL::int AS cod,    -- eleger código da via (marginal ou nao, nulo ou nao)
+    	   ST_MakeLine(sp,ep) AS seg
+        FROM (
+           SELECT gid, cod_vias, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
+           FROM prepared_quadras
+        ) AS t;
+ 
+   -- 2. Encontrando a via (cod) associada a cada segmento:
+   UPDATE kx.quadraccvia_simplseg
+      SET gid_via=t.egid, cod=t.cod, tipo_via=t.tipo
+   FROM (
+      SELECT s.gid AS sgid, e.gid AS egid, e.cod, e.tipo
+      FROM kx.quadraccvia_simplseg s INNER JOIN (SELECT *, ST_Buffer(geom,2*$1) AS buff FROM kx.eixologr_cod) e 
+           ON e.cod=ANY(s.cod_vias) AND e.buff && s.seg AND ST_Intersects(e.buff,s.seg) 
+              AND ST_Length(ST_Intersection(s.seg,e.buff))/ST_Length(s.seg) > p_cobertura
+   ) t 
+   WHERE t.sgid=quadraccvia_simplseg.gid;
+   -- 3.2 encontra marginal se houver
+ 
+   -- 4. refazer por estatística o kx.quadraccvia.cod_vias... reunir segmentos para compor "face"
+ 
+   -- 5. finalizacoes opcionais de quadraccvia:
+   IF p_reduz>0.0 THEN 
+     UPDATE kx.quadraccvia SET geom = ST_Buffer(geom, -1.0*p_reduz);  -- reduzir por último
+     DELETE FROM kx.quadraccvia WHERE ST_Area(geom) <= p_area_min;    -- resíduos e poeiras
+   END IF;
+   RETURN v_msg;
+END;
+$_$;
+ 
+ 
+CREATE OR REPLACE FUNCTION lib.r008_assigncoddist(
+   --
+   -- usa kx.quadraccvia_simplface de quadraccvia_gid para classificar via de segmento dado
+   --
+  p_gid_qcc  bigint,  -- gid da quadraccvia em questao
+  p_geom     geometry, -- segmento de quadrasc,
+  p_raio float DEFAULT 25.0,
+  p_step float DEFAULT 1.8       -- tamanho das tiras de verificação (2m)
+) RETURNS text AS $F$ 
+DECLARE
+   r     integer;
+   v_len float;
+   v_w   float;
+   face RECORD;
+BEGIN
+   v_len = ST_Length(p_geom);
+   FOR r IN 1 .. round(p_raio/p_step)::int LOOP
+      v_w = r*p_step;
+      FOR face IN SELECT ST_Buffer(seg,v_w) AS geom, cod   -- scan das faces
+                 FROM kx.quadraccvia_simplface WHERE gid_quadra=p_gid_qcc  
+      LOOP
+          IF st_length(ST_Intersection(face.geom,p_geom))/v_len > 0.51 THEN
+                RETURN array[face.cod,v_w];
+          END IF;
+      END LOOP;
+   END LOOP;  
+END;
+$F$ LANGUAGE PLpgSQL;
+
 
 
 ----------
@@ -985,166 +1226,5 @@ $f$ language PLpgSQL IMMUTABLE;
 -- Query returned successfully with no result in 571 ms.
 
 
-===============
-
-se entre um segment e outro tem poligono ou via, é invalido.
 
 
-CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc_auxbuffs(
-	-- v1.0 de 2014-04-11.
-	float DEFAULT 10.0,   -- p1 buffer externo de kx.quadra_buffdiff, nao importa tamanho
-	float DEFAULT -4.0,  -- p2 buffer interno de kx.quadra_buffdiff, critico, controlar
-	float DEFAULT 4.0,   -- p3 buffer das vias (meia largura média da rua)
-	float DEFAULT 0.2,   -- p4 fator de simplify no segmento de quadrasc_seg
-	float DEFAULT 2.0    -- p5 buffer do segmento de quadra para identificar paralelas
-) RETURNS text AS $func$
-   BEGIN
-	-- 1. ok BuffDiff: annular strip da borda da quadra (tira em forma de anel)
-	DROP TABLE IF EXISTS kx.quadra_buffdiff;
-	CREATE TABLE kx.quadra_buffdiff AS 
-	  SELECT gid, st_difference(st_buffer(geom,$1),st_buffer(geom,$2)) AS geom 
-	  FROM fonte.g_quadra;
-	ALTER TABLE kx.quadra_buffdiff ADD PRIMARY KEY (gid);
- 
-	-- 2. segmentação da quadrasc
-	DROP TABLE IF EXISTS kx.quadrasc_simplseg;
-	CREATE TABLE kx.quadrasc_simplseg AS 
-	  WITH prepared_quadras AS (  -- simplificando segmentos menores que 0.2m 
-	      SELECT gid, quadra_gid, geom,
-		generate_series(1, ST_NPoints(geom)-1) AS s_s,
-		generate_series(2, ST_NPoints(geom)  ) AS s_e
-	      FROM (SELECT gid, quadra_gid, (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,$4)))).geom
-		  FROM kx.quadrasc
-	      ) AS linestrings
-	  ) SELECT dense_rank() over (ORDER BY gid,s_s,s_e) AS gid,
-		   gid AS gid_quadrasc, -- unica por construcao
-		   quadra_gid, --  quadra em que esta contido
-		   s_s AS id_seg, 
-		   NULL::BOOLEAN AS isexterno,
-		   NULL::integer AS isexterno_fator,
-		   NULL::integer AS id_via,
-		   ST_MakeLine(sp,ep) AS seg
-	    FROM (
-	       SELECT gid, quadra_gid, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
-	       FROM prepared_quadras
-	    ) AS t; -- 13373 (sem simplificação seriam dez vezes mais!)
-	    
-
-	-- 3.1 classificando como EXTERNO quem está 35% ou mais no buffer perimetral da quadra
-	UPDATE kx.quadrasc_simplseg
-	SET isexterno=true
-	WHERE gid IN (
-	    SELECT k.gid
-	    FROM kx.quadra_buffdiff b INNER JOIN kx.quadrasc_simplseg  k 
-		 ON b.gid=k.quadra_gid AND k.seg && b.geom
-	     WHERE isexterno IS NULL AND ST_Length(ST_Intersection(k.seg,b.geom))/ST_Length(k.seg)>0.35);
-	DROP TABLE kx.quadra_buffdiff; -- descartar exceto para debug
-
-	-- 3.2 reclassificando como NULL quem está mais de 50% interno
-	UPDATE kx.quadrasc_simplseg
-	SET isexterno=NULL --false
-	WHERE gid IN (
-	    SELECT k.gid
-	    FROM (SELECT gid, st_buffer(geom,$2*0.8) as geom FROM fonte.g_quadra) b INNER JOIN kx.quadrasc_simplseg  k 
-		 ON b.gid=k.quadra_gid AND k.seg && b.geom
-	     WHERE  ST_Length(ST_Intersection(k.seg,b.geom))/ST_Length(k.seg)>0.51);
-
-	RETURN 'OK-BASICO quadrasc_simplseg';
-   END;
-$func$ language PLpgSQL VOLATILE;
-
-
-=======
-
-CRIA kx.quadracc_byvias
-
-
-DROP TABLE kx.quadracc_byvias;
-CREATE TABLE kx.quadracc_byvias AS 
-SELECT (st_dump).path[1] as gid, (st_dump).geom,
-	NULL::int[] as cod_vias
-FROM (
-     SELECT ST_Dump(ST_Polygonize(geom)) 
-     FROM (SELECT ST_Union(geom) as geom FROM kx.eixologr_cod) mergedlines
-) polys;
-ALTER TABLE kx.quadracc_byvias ADD PRIMARY KEY (gid);
-
-
-ALTER TABLE kx.quadracc_byvias ADD COLUMN gid_quadras_in bigint[];
-
-UPDATE kx.quadracc_byvias 
-SET gid_quadras_in=t.gids
-FROM (
-   SELECT q.gid, array_agg(e.gid) as gids
-   FROM fonte.g_quadra e INNER JOIN kx.quadracc_byvias q ON e.geom && q.geom 
-	AND ST_Area(ST_Intersection(q.geom,e.geom))>1.0
-   GROUP BY q.gid
-) t
-WHERE t.gid=quadracc_byvias.gid;
-
-CREATE TABLE kx.quadracc_container AS 
-  SELECT  gid_quadras_in[1] as gid, ST_UNION(geom) as geom
-  FROM kx.quadracc_byvias
-  WHERE array_length(gid_quadras_in,1)=1
-  GROUP BY gid_quadras_in[1];
-
-UPDATE kx.quadracc_byvias 
-SET cod_vias=t.cods,
-    geom = ST_Difference(quadracc_byvias.geom,t.geom)
-FROM (
-   SELECT q.gid, array_agg(e.cod) as cods, ST_Buffer(ST_Union(e.geom),1.0) as geom
-   FROM kx.eixologr_cod e INNER JOIN kx.quadracc_byvias q ON e.geom && q.geom 
-	AND ST_Intersects(e.geom,q.geom) AND ST_Area(ST_intersection(q.geom,ST_buffer(e.geom,1)))>2.0
-   GROUP BY q.gid
-) t
-WHERE t.gid=quadracc_byvias.gid;
-
-
-
-=====
--- new 2014-04-21
-
-CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_seg(
-	BOOLEAN DEFAULT true  -- requisita refazimento de kx.lote_seg
-) RETURNS text AS $func$
-   BEGIN
-	IF ($1) THEN
-		DROP TABLE IF EXISTS kx.lote_seg;
-		CREATE TABLE kx.lote_seg AS 
-		  WITH prepared_lotes AS (
-		      SELECT gid, chave, gid_quadrasc, geom,
-			generate_series(1, ST_NPoints(geom)-1) AS s_s,
-			generate_series(2, ST_NPoints(geom)  ) AS s_e
-		      FROM (
-			  SELECT gid, chave, kx_quadrasc_id as gid_quadrasc,
-				(ST_Dump(ST_Boundary(geom))).geom -- sem simplifcar
-				-- (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,0.1)))).geom
-		  	  FROM fonte.g_lote
-		      ) AS linestrings
-		  ) SELECT dense_rank() over (ORDER BY gid,s_s) AS gid,
-			  gid AS gid_lote, chave, gid_quadrasc, s_s AS id_seg, 
-			  0::int AS id_via, false AS isexterno, -- a maioria é interno, exceto se fronteira com quadrasc
-			  false AS isfronteira, ST_MakeLine(sp,ep) AS seg
-		    FROM (
-		       SELECT *, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep
-		       FROM prepared_lotes
-		    ) AS t; -- 89515 registros. Sem uso no idvia.
-	ELSE
-		UPDATE kx.lote_seg SET isexterno=false, isfronteira=false, id_via=0; -- defaults
-	END IF; -- kx.lote_seg criada
- 
-	UPDATE kx.lote_seg -- demora mais de 5min (200seg)
-	SET isexterno=t.isexterno, id_via=t.id_via, isfronteira=true
-	FROM (
-	  SELECT s.gid, q.isexterno, q.id_via
-	  FROM kx.lote_seg s INNER JOIN kx.quadrasc_simplseg q 
-	     ON s.gid_quadrasc=q.gid_quadrasc AND q.seg && s.seg 
-	  WHERE ST_Length( ST_Intersection(s.seg,ST_Buffer(q.seg,1.5)) )/ST_Length(s.seg) > 0.6
-	) AS t
-	WHERE t.gid=lote_seg.gid;
-
-	RETURN 'OK';
-   END;
-$func$ LANGUAGE PLpgSQL VOLATILE;
- 
-SELECT lib.kxrefresh_lote_seg();  -- executa!
