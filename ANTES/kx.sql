@@ -20,10 +20,17 @@ SELECT lib.r008a_quadra(); -- (receita A) demora alguns minutos
 -- roda a receita B
 SELECT lib.r008b_seg(); -- (receita B) demora mais de 20 minutos
 
+-- falta gerador de quadraccvia_simplface??
+
 -- -- -- --
 -- Receita 008, obtenção de quadra sem calçada e sua rotulação nos lotes:
 -- http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R009
-SELECT lib.kxrefresh_quadrasc();
+SELECT lib.kxrefresh_quadrasc(); -- demora ??
+-- pode rodar com 
+--   [19757] psql -U alegrete -h localhost -c "SELECT lib.r008b_seg(0.15,1.0);" &
 
-
+-- DEPOIS
+---  ... select lib.r008_refresh_quadraccvia? mudou de nome?
+--   ?psql -U alegrete -h localhost -c "SELECT lib.kxrefresh_lote_seg();" &
+--   psql -U alegrete -h localhost -c "SELECT lib.kxrefresh_quadrasc(1.0);"  &
 

@@ -1166,7 +1166,7 @@ BEGIN
            FROM prepared_quadras
         ) AS t;
  
-   -- 2. Encontrando a via (cod) associada a cada segmento:
+   -- 2. Encontrando a via (cod) associada a cada segmento:  (OTIMIZAR!)
    UPDATE kx.quadraccvia_simplseg
       SET gid_via=t.egid, cod=t.cod, tipo_via=t.tipo
    FROM (
