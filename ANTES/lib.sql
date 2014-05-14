@@ -314,9 +314,7 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
    BEGIN
  
    -- faltam IFs para CREATE SCHEMA errsig; CREATE SCHEMA kx;
-   ret:='';
-   DROP TABLE IF EXISTS  kx.lote_viz;
-   ret := ret || E'\n-- Reiniciando a tabela kx.lote_viz';
+   ret := E'\n-- Reiniciando a tabela kx.lote_viz';
    -- FALTARIA verificar se refresh já foi recentemente realizado e dependencias não foram atualizadas
    -- .. ai nao perde tempo atualizando denovo!
    DELETE FROM kx.lote_viz;
