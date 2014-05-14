@@ -77,7 +77,7 @@ DECLARE
   v_exeaux      text;
   v_stop BOOLEAN := false;  -- para fazer mais um loop depois de chegar ao fim
 BEGIN
-   IF p_tvias IS NULL
+   IF p_tvias IS NULL THEN
       p_tvias :='kx.eixologr_cod'::regclass;
    END IF;
    IF p_raio<1.0 OR p_raio>100.0 THEN
@@ -1108,7 +1108,7 @@ END;
 $F$ LANGUAGE PLpgSQL;
  
 CREATE FUNCTION lib.r008_gidvia2cod(bigint) RETURNS int AS $F$  
-  SELECT cod FROM kx.eixologr_cod WHERE gid=$1 
+  SELECT cod::integer FROM kx.eixologr_cod WHERE gid=$1 
 $F$ LANGUAGE SQL IMMUTABLE;
 
 ---- receita b
