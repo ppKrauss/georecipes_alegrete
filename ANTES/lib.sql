@@ -1130,8 +1130,13 @@ END;
 $F$ LANGUAGE PLpgSQL IMMUTABLE;
  
 
-CREATE OR REPLACE  FUNCTION lib.r008b_seg(p_width_via double precision DEFAULT 0.5, p_reduz double precision DEFAULT 0.5, p_area_min double precision DEFAULT 10.0, p_cobertura double precision DEFAULT 0.51, p_simplfactor double precision DEFAULT 0.2) RETURNS text
-    LANGUAGE plpgsql
+CREATE OR REPLACE  FUNCTION lib.r008b_seg(
+	p_width_via double precision DEFAULT 0.5, 
+	p_reduz double precision DEFAULT 0.5, 
+	p_area_min double precision DEFAULT 10.0, 
+	p_cobertura double precision DEFAULT 0.51, 
+	p_simplfactor double precision DEFAULT 0.2
+) RETURNS text LANGUAGE plpgsql
     AS $_$  -- retorna mensagem de erro
 DECLARE
    v_msg text := format('Parametros width_via=%s, reduz=%s, area_min=%s, cobertura=%s, simplft=%s',$1,$2,$3,$4,$5);
@@ -1165,13 +1170,15 @@ BEGIN
            SELECT gid, cod_vias, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
            FROM prepared_quadras
         ) AS t;
+   ALTER TABLE kx.quadraccvia_simplseg ADD  primary key (gid); -- 73ms
+   -- NAO USAR CREATE INDEX ON kx.quadraccvia_simplseg USING GIST(seg); deu pau 
  
    -- 2. Encontrando a via (cod) associada a cada segmento:  (OTIMIZAR!)
    UPDATE kx.quadraccvia_simplseg
       SET gid_via=t.egid, cod=t.cod, tipo_via=t.tipo
    FROM (
       SELECT s.gid AS sgid, e.gid AS egid, e.cod, e.tipo
-      FROM kx.quadraccvia_simplseg s INNER JOIN (SELECT *, ST_Buffer(geom,2*$1) AS buff FROM kx.eixologr_cod) e 
+      FROM kx.quadraccvia_simplseg s INNER JOIN (SELECT *, ST_Buffer(geom,2*($1+$2+$5)) AS buff FROM kx.eixologr_cod) e 
            ON e.cod=ANY(s.cod_vias) AND e.buff && s.seg AND ST_Intersects(e.buff,s.seg) 
               AND ST_Length(ST_Intersection(s.seg,e.buff))/ST_Length(s.seg) > p_cobertura
    ) t 

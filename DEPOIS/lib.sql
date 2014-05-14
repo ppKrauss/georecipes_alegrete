@@ -686,6 +686,8 @@ BEGIN
            SELECT gid, cod_vias, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
            FROM prepared_quadras
         ) AS t;
+
+  CREATE INDEX ON kx.quadraccvia_simplseg USING GIST(seg); -- IMPORTANTE!
  
    -- 5. Encontrando a via (cod) associada a cada segmento:
    UPDATE kx.quadraccvia_simplseg
