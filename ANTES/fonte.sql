@@ -10,22 +10,41 @@ SET check_function_bodies = false;
 SET client_min_messages = warning;
 -- DROP SCHEMA fonte CASCADE; 
 -- DROP SCHEMA errsig CASCADE;
-CREATE SCHEMA fonte;
---precisa? CREATE SCHEMA errsig
---ALTER SCHEMA fonte OWNER TO alegrete;
--- nao usar SET search_path = fonte, pg_catalog;
+
+DO
+$DO$
+DECLARE
+  query_integer integer NOT NULL := 0;
+BEGIN
+
+  IF NOT current_setting( 'is_superuser' )::boolean THEN
+    RAISE EXCEPTION 'Conta de super usuário requerida.';
+  END IF;
+  -- as requested by peter --
+  DROP SCHEMA IF EXISTS kx CASCADE;
+  DROP SCHEMA IF EXISTS lib CASCADE;
+  DROP SCHEMA IF EXISTS fonte CASCADE;
+
+  BEGIN
+    CREATE SCHEMA fonte;
+  EXCEPTION
+  WHEN SQLSTATE '42P06' THEN
+  END;
+  --precisa? CREATE SCHEMA errsig
+  --ALTER SCHEMA fonte OWNER TO alegrete;
+  -- nao usar SET search_path = fonte, pg_catalog;
 
 
--- -- --
+  -- -- --
 
---
--- -- tadm PARTE 0: tabelas e funções de check
---
-CREATE TABLE fonte.tadm_error_type ( -- err_cods description
-   err_cod serial PRIMARY KEY, -- using hash
-   err_cod_name varchar(64) NOT NULL,
-   err_cod_description text
-);
+  --
+  -- -- tadm PARTE 0: tabelas e funções de check
+  --
+  CREATE TABLE fonte.tadm_error_type ( -- err_cods description
+     err_cod serial PRIMARY KEY, -- using hash
+     err_cod_name varchar(64) NOT NULL,
+     err_cod_description text
+  );
  
 CREATE OR REPLACE FUNCTION fonte.check_err_id(integer[],BOOLEAN DEFAULT NULL) RETURNS BOOLEAN AS $$
   -- funcao fora de uso ... precisa?
@@ -185,7 +204,8 @@ $$ LANGUAGE SQL immutable;
  
 -------
  
-
+-- TODO manter isso --
+/*
 CREATE FUNCTION check_err_id(integer[], boolean DEFAULT NULL::boolean) RETURNS boolean AS $_$
   -- funcao fora de uso, nao precisa
   SELECT COALESCE( array_Length($1,1) = ( 
@@ -194,7 +214,7 @@ CREATE FUNCTION check_err_id(integer[], boolean DEFAULT NULL::boolean) RETURNS b
        ON f.err_cod=t.ecod
   ), $2 );
 $_$ LANGUAGE sql IMMUTABLE; 
-
+*/
 
  
  
@@ -275,8 +295,10 @@ VALUES
 -- fonte.g_lote -- ver lib.tadm_add_stdconstraints()
 ALTER TABLE fonte.g_lote ADD PRIMARY KEY (gid);
 ALTER TABLE fonte.g_lote ALTER COLUMN geom SET NOT NULL; 
-SELECT max(gid) FROM fonte.g_lote; --25911
-CREATE SEQUENCE fonte.g_lote_gid_seq START 25912;
+  BEGIN
+    SELECT max(gid) FROM fonte.g_lote INTO query_integer; --25911
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_lote_gid_seq START %1$s', query_integer );
+  END;
 ALTER TABLE fonte.g_lote ALTER COLUMN gid SET DEFAULT  nextval('fonte.g_lote_gid_seq'::regclass);
 ALTER TABLE fonte.g_lote ADD CONSTRAINT chk_dimcia 
       CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
@@ -287,9 +309,11 @@ ALTER TABLE fonte.g_lote
 -- fonte.g_quadra -- ver lib.tadm_add_stdconstraints()
 ALTER TABLE fonte.g_quadra ADD PRIMARY KEY (gid);
 ALTER TABLE fonte.g_quadra ALTER COLUMN geom SET NOT NULL; 
-SELECT max(gid) FROM fonte.g_quadra; --1010
-CREATE SEQUENCE fonte.g_quadra_gid_seq START 1011;
-ALTER TABLE fonte.g_quadra ALTER COLUMN gid SET DEFAULT  nextval('fonte.g_quadra_gid_seq'::regclass);
+  BEGIN
+    SELECT max(gid) FROM fonte.g_quadra INTO query_integer; --25911
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_quadra_gid_seq START %1$s', query_integer );
+  END;
+ALTER TABLE fonte.g_quadra ALTER COLUMN gid SET DEFAULT nextval('fonte.g_quadra_gid_seq'::regclass);
 ALTER TABLE fonte.g_quadra ADD CONSTRAINT chk_dimcia 
       CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
 ALTER TABLE fonte.g_quadra
@@ -298,9 +322,11 @@ ALTER TABLE fonte.g_quadra
 -- -- --
 -- fonte.g_eixologr -- ver lib.tadm_add_stdconstraints()
 ALTER TABLE fonte.g_eixologr ADD PRIMARY KEY (gid);
-ALTER TABLE fonte.g_eixologr ALTER COLUMN geom SET NOT NULL; 
-SELECT max(gid) FROM fonte.g_eixologr; --2629
-CREATE SEQUENCE fonte.g_eixologr_gid_seq START 2629;
+ALTER TABLE fonte.g_eixologr ALTER COLUMN geom SET NOT NULL;
+  BEGIN
+    SELECT max(gid) FROM fonte.g_eixologr INTO query_integer; --25911
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_eixologr_gid_seq START %1$s', query_integer );
+  END;
 ALTER TABLE fonte.g_eixologr ALTER COLUMN gid SET DEFAULT  nextval('fonte.g_eixologr_gid_seq'::regclass);
 ALTER TABLE fonte.g_eixologr ADD CONSTRAINT chk_dimcia 
       CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
@@ -325,3 +351,5 @@ ALTER TABLE fonte.g_lote ADD COLUMN kx_quadrasc_id integer NOT NULL DEFAULT 0;
 -- MENSAGEM FINAL É ALGO COMO 
 -- Query returned successfully: 16759 rows affected, 8490 ms execution time.
 
+END
+$DO$;
