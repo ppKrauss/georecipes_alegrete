@@ -1011,9 +1011,12 @@ BEGIN
 END;
 $F$ LANGUAGE PLpgSQL;
  
-CREATE FUNCTION lib.r008_gidvia2cod(bigint) RETURNS int AS $F$  
-  SELECT cod::integer FROM kx.eixologr_cod WHERE gid=$1 
-$F$ LANGUAGE SQL IMMUTABLE;
+CREATE FUNCTION lib.r008_gidvia2cod(bigint) RETURNS int AS
+$F$
+BEGIN
+  RETURN cod::integer FROM kx.eixologr_cod WHERE gid=$1;
+END;
+$F$ LANGUAGE plpgsql IMMUTABLE;
 
 ---- receita b
 CREATE FUNCTION lib.r008_err_exists(text) RETURNS text 
