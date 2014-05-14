@@ -21,8 +21,6 @@ BEGIN
     RAISE EXCEPTION 'Conta de super usuário requerida.';
   END IF;
   -- as requested by peter --
-  DROP SCHEMA IF EXISTS kx CASCADE;
-  DROP SCHEMA IF EXISTS lib CASCADE;
   DROP SCHEMA IF EXISTS fonte CASCADE;
 
   BEGIN
@@ -276,9 +274,51 @@ $$ LANGUAGE plpgsql;
 -- -- carga das fontes PARTE 1: tabelas g_lote, g_quadra e g_eixologr
 --
 
-CREATE TABLE fonte.g_lote       AS SELECT * FROM public.g_lote     WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
-CREATE TABLE fonte.g_quadra     AS SELECT * FROM public.g_quadra   WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
-CREATE TABLE fonte.g_eixologr   AS SELECT * FROM public.g_eixologr WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
+  CREATE TABLE fonte.g_lote AS
+  SELECT * FROM public.g_lote WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
+  -- -- --
+  -- fonte.g_lote -- ver lib.tadm_add_stdconstraints()
+  ALTER TABLE fonte.g_lote ADD PRIMARY KEY (gid);
+  ALTER TABLE fonte.g_lote ALTER COLUMN geom SET NOT NULL; 
+  BEGIN
+    SELECT max(gid) FROM fonte.g_lote INTO query_integer; --25911
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_lote_gid_seq START %1$s', query_integer );
+  END;
+  ALTER TABLE fonte.g_lote ALTER COLUMN gid SET DEFAULT nextval('fonte.g_lote_gid_seq'::regclass);
+  ALTER TABLE fonte.g_lote ADD CONSTRAINT chk_dimcia CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
+  ALTER TABLE fonte.g_lote ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
+  ALTER TABLE fonte.g_lote ADD COLUMN kx_quadra_gid integer NOT NULL DEFAULT 0;
+  ALTER TABLE fonte.g_lote ADD COLUMN kx_quadrasc_id integer NOT NULL DEFAULT 0;
+
+  CREATE TABLE fonte.g_quadra AS
+  SELECT * FROM public.g_quadra WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
+  -- -- --
+  -- fonte.g_quadra -- ver lib.tadm_add_stdconstraints()
+  ALTER TABLE fonte.g_quadra ADD PRIMARY KEY (gid);
+  ALTER TABLE fonte.g_quadra ALTER COLUMN geom SET NOT NULL; 
+  BEGIN
+    SELECT max(gid) FROM fonte.g_quadra INTO query_integer;
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_quadra_gid_seq START %1$s', query_integer );
+  END;
+  ALTER TABLE fonte.g_quadra ALTER COLUMN gid SET DEFAULT nextval('fonte.g_quadra_gid_seq'::regclass);
+  ALTER TABLE fonte.g_quadra ADD CONSTRAINT chk_dimcia CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
+  ALTER TABLE fonte.g_quadra ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
+
+
+  CREATE TABLE fonte.g_eixologr AS
+  SELECT * FROM public.g_eixologr WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
+  -- -- --
+  -- fonte.g_eixologr -- ver lib.tadm_add_stdconstraints()
+  ALTER TABLE fonte.g_eixologr ADD PRIMARY KEY (gid);
+  ALTER TABLE fonte.g_eixologr ALTER COLUMN geom SET NOT NULL;
+  BEGIN
+    SELECT max(gid) FROM fonte.g_eixologr INTO query_integer;
+    EXECUTE format( 'CREATE SEQUENCE fonte.g_eixologr_gid_seq START %1$s', query_integer );
+  END;
+  ALTER TABLE fonte.g_eixologr ALTER COLUMN gid SET DEFAULT nextval('fonte.g_eixologr_gid_seq'::regclass);
+  ALTER TABLE fonte.g_eixologr ADD CONSTRAINT chk_dimcia CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
+  ALTER TABLE fonte.g_eixologr ALTER COLUMN geom TYPE geometry(linestring) USING st_geometryn(geom, 1);
+
 -- ex. de pau:
 --select  gid,ST_NumGeometries(geom),  st_area(st_geometryn(geom, 1)) as a1, st_area(st_geometryn(geom, 2)) as a2 
 --from fonte.g_quadra where ST_NumGeometries(geom)>1;
@@ -291,65 +331,9 @@ VALUES
   ('fonte.g_quadra'::regclass,   1, 0, 'POLYGON', false, 1, 1.0, 100.0, array[1,2,3]),
   ('fonte.g_eixologr'::regclass, 1, 0, 'LINESTRING', false, 0.5, 1.0, 100.0, array[1,2,3]);
 
--- -- --
--- fonte.g_lote -- ver lib.tadm_add_stdconstraints()
-ALTER TABLE fonte.g_lote ADD PRIMARY KEY (gid);
-ALTER TABLE fonte.g_lote ALTER COLUMN geom SET NOT NULL; 
-  BEGIN
-    SELECT max(gid) FROM fonte.g_lote INTO query_integer; --25911
-    EXECUTE format( 'CREATE SEQUENCE fonte.g_lote_gid_seq START %1$s', query_integer );
-  END;
-ALTER TABLE fonte.g_lote ALTER COLUMN gid SET DEFAULT  nextval('fonte.g_lote_gid_seq'::regclass);
-ALTER TABLE fonte.g_lote ADD CONSTRAINT chk_dimcia 
-      CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
-ALTER TABLE fonte.g_lote
-    ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
-
--- -- --
--- fonte.g_quadra -- ver lib.tadm_add_stdconstraints()
-ALTER TABLE fonte.g_quadra ADD PRIMARY KEY (gid);
-ALTER TABLE fonte.g_quadra ALTER COLUMN geom SET NOT NULL; 
-  BEGIN
-    SELECT max(gid) FROM fonte.g_quadra INTO query_integer; --25911
-    EXECUTE format( 'CREATE SEQUENCE fonte.g_quadra_gid_seq START %1$s', query_integer );
-  END;
-ALTER TABLE fonte.g_quadra ALTER COLUMN gid SET DEFAULT nextval('fonte.g_quadra_gid_seq'::regclass);
-ALTER TABLE fonte.g_quadra ADD CONSTRAINT chk_dimcia 
-      CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
-ALTER TABLE fonte.g_quadra
-    ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
-
--- -- --
--- fonte.g_eixologr -- ver lib.tadm_add_stdconstraints()
-ALTER TABLE fonte.g_eixologr ADD PRIMARY KEY (gid);
-ALTER TABLE fonte.g_eixologr ALTER COLUMN geom SET NOT NULL;
-  BEGIN
-    SELECT max(gid) FROM fonte.g_eixologr INTO query_integer; --25911
-    EXECUTE format( 'CREATE SEQUENCE fonte.g_eixologr_gid_seq START %1$s', query_integer );
-  END;
-ALTER TABLE fonte.g_eixologr ALTER COLUMN gid SET DEFAULT  nextval('fonte.g_eixologr_gid_seq'::regclass);
-ALTER TABLE fonte.g_eixologr ADD CONSTRAINT chk_dimcia 
-      CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
-ALTER TABLE fonte.g_eixologr
-    ALTER COLUMN geom TYPE geometry(linestring) USING st_geometryn(geom, 1);
-
-
-
-------
--- Associando lotes a grupos vizinhos e a quadras
------
-
-ALTER TABLE fonte.g_lote ADD COLUMN kx_quadra_gid integer NOT NULL DEFAULT 0;
-ALTER TABLE fonte.g_lote ADD COLUMN kx_quadrasc_id integer NOT NULL DEFAULT 0;
-
-
 -- SELECT COUNT(DISTINCT kx_quadra_gid) as nquadras, COUNT(DISTINCT kx_quadrasc_id) as ngviz, 
 --        COUNT(*) as nlotes 
 -- FROM fonte.g_lote;
-
-------------------------------
--- MENSAGEM FINAL É ALGO COMO 
--- Query returned successfully: 16759 rows affected, 8490 ms execution time.
 
 END
 $DO$;
