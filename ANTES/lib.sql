@@ -1,10 +1,13 @@
 -- -- --
--- Funções do esquema LIB.
+-- Criação do esquema LIB.
 -- https://github.com/ppKrauss/georecipes_alegrete
 -- -- --
+DO
+$DO$
+BEGIN
 
-CREATE schema lib;
-CREATE schema kx;
+  DROP SCHEMA IF EXISTS lib CASCADE;
+  CREATE schema lib;
 
 -- -- --
 -- gerais uteis (LEGADOS):
@@ -212,8 +215,7 @@ $func$ language SQL IMMUTABLE;
 -- 
 -- INITIALIZATIONS AND FUNCION DEF.
 --
- 
--- CREATE SCHEMA IF NOT EXISTS lib; 
+
 DROP TABLE IF EXISTS lib.trgr_labeler_in CASCADE;
 CREATE TABLE lib.trgr_labeler_in (
   id1 integer, id2 integer
@@ -1159,7 +1161,9 @@ BEGIN
           FROM (SELECT gid, cod_vias, (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,p_simplfactor)))).geom
     	  FROM kx.quadraccvia
           ) AS linestrings
-      ) SELECT dense_rank() over (ORDER BY gid,s_s,s_e) AS gid,
+      )
+      SELECT 
+        row_number() OVER () AS gid,
     	   gid AS gid_quadra, -- unica por construcao
     	   s_s AS id_seg,             cod_vias,
     	   NULL::bigint AS gid_via,   NULL::text AS tipo_via,
@@ -1226,12 +1230,5 @@ BEGIN
 END;
 $F$ LANGUAGE PLpgSQL;
 
-
-
-----------
--- SCRIPT TERMINA COM ALGO COMO 
--- Query returned successfully with no result in 571 ms.
-
-
-
-
+END
+$DO$;
