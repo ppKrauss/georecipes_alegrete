@@ -8,7 +8,6 @@ BEGIN
 
   DROP SCHEMA IF EXISTS lib CASCADE;
   CREATE schema lib;
-
 -- -- --
 -- gerais uteis (LEGADOS):
 
@@ -317,13 +316,7 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
    -- faltam IFs para CREATE SCHEMA errsig; CREATE SCHEMA kx;
    ret:='';
    DROP TABLE IF EXISTS  kx.lote_viz;
-   CREATE TABLE kx.lote_viz (
-             id SERIAL,
-             a_gid int, b_gid int, viz_tipo float, 
-             relcod varchar(12), err varchar(64),
-             CONSTRAINT pk PRIMARY KEY (a_gid,b_gid)
-   );
-   ret:=ret||E'\n-- Criada a tabela kx.lote_viz';
+   ret := ret || E'\n-- Reiniciando a tabela kx.lote_viz';
    -- FALTARIA verificar se refresh já foi recentemente realizado e dependencias não foram atualizadas
    -- .. ai nao perde tempo atualizando denovo!
    DELETE FROM kx.lote_viz;
