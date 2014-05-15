@@ -270,13 +270,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
---
--- -- carga das fontes PARTE 1: tabelas g_lote, g_quadra e g_eixologr
---
+  -- carga das fontes PARTE 1: tabelas g_lote, g_quadra e g_eixologr
 
   CREATE TABLE fonte.g_lote AS
   SELECT * FROM public.g_lote WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
-  -- -- --
   -- fonte.g_lote -- ver lib.tadm_add_stdconstraints()
   ALTER TABLE fonte.g_lote ADD PRIMARY KEY (gid);
   ALTER TABLE fonte.g_lote ALTER COLUMN geom SET NOT NULL; 
@@ -285,14 +282,16 @@ $$ LANGUAGE plpgsql;
     EXECUTE format( 'CREATE SEQUENCE fonte.g_lote_gid_seq START %1$s', query_integer );
   END;
   ALTER TABLE fonte.g_lote ALTER COLUMN gid SET DEFAULT nextval('fonte.g_lote_gid_seq'::regclass);
-  ALTER TABLE fonte.g_lote ADD CONSTRAINT chk_dimcia CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
+  ALTER TABLE fonte.g_lote ADD CONSTRAINT chk_dimcia CHECK ( st_ndims( geom ) = 2 AND ST_IsSimple( geom ) AND ST_IsValid( geom ) );
   ALTER TABLE fonte.g_lote ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
   ALTER TABLE fonte.g_lote ADD COLUMN kx_quadra_gid integer NOT NULL DEFAULT 0;
   ALTER TABLE fonte.g_lote ADD COLUMN kx_quadrasc_id integer NOT NULL DEFAULT 0;
-
+  RAISE NOTICE '% Gerando índice em fonte.g_lote.', now();
+  CREATE INDEX ON fonte.g_lote USING GIST( geom );
+  RAISE NOTICE '% Índice concluído em fonte.g_lote.', now();
+  
   CREATE TABLE fonte.g_quadra AS
   SELECT * FROM public.g_quadra WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
-  -- -- --
   -- fonte.g_quadra -- ver lib.tadm_add_stdconstraints()
   ALTER TABLE fonte.g_quadra ADD PRIMARY KEY (gid);
   ALTER TABLE fonte.g_quadra ALTER COLUMN geom SET NOT NULL; 
@@ -303,7 +302,9 @@ $$ LANGUAGE plpgsql;
   ALTER TABLE fonte.g_quadra ALTER COLUMN gid SET DEFAULT nextval('fonte.g_quadra_gid_seq'::regclass);
   ALTER TABLE fonte.g_quadra ADD CONSTRAINT chk_dimcia CHECK (st_ndims(geom)=2 AND ST_IsSimple(geom) AND ST_IsValid(geom));
   ALTER TABLE fonte.g_quadra ALTER COLUMN geom TYPE geometry(POLYGON) USING st_geometryn(geom, 1);
-
+  RAISE NOTICE '% Gerando índice em fonte.g_quadra.', now();
+  CREATE INDEX ON fonte.g_quadra USING GIST( geom );
+  RAISE NOTICE '% Índice concluído em fonte.g_quadra.', now();
 
   CREATE TABLE fonte.g_eixologr AS
   SELECT * FROM public.g_eixologr WHERE ST_NumGeometries(geom)=1 AND ST_IsSimple(geom) AND ST_IsValid(geom);
