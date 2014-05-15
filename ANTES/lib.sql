@@ -366,17 +366,6 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
       ret:=ret||E'\n-- Atualizada a tabela kx.lote_viz com vizinhos de distancia '||$1;
    END IF;
  
-   CREATE OR REPLACE VIEW kx.vw_lote_viz_err AS -- vai usar só no final
-     -- gid dos lotes com sobreposicao de mais de 1% ou mais de 2m2 de area sobrepostos
-     SELECT gid, array_to_string(  array_agg(iif(gid=a_gid,b_gid,a_gid) || ' ' || err)  ,  '; ') AS err
-     FROM (
-       SELECT unnest(array[a_gid, b_gid]) AS gid, a_gid, b_gid, err 
-       FROM kx.lote_viz 
-       WHERE err>'' AND viz_tipo=0 
-       ORDER BY 1
-     ) AS t
-     GROUP BY gid
-     ORDER BY 1;
    ret:=ret||E'\n-- View kx.vw_lote_viz_err';
    SELECT COUNT(*) INTO n FROM kx.vw_lote_viz_err;
    IF p_out_errsig AND n>0 THEN 
