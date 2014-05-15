@@ -10,22 +10,64 @@ SET standard_conforming_strings = on;
 SET check_function_bodies = false;
 SET client_min_messages = warning;
 
--- -- -- --
--- Receita 008, obtenção de quadras a partir da malha viária:
--- http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R008
-SELECT lib.r008a_quadra(); -- (receita A) demora alguns minutos
---  Tabela kx.eixologr_cod populada com 624 registros
---  Tabela kx.quadraccvia populada com 941 registros"
+BEGIN;
+  DROP SCHEMA IF EXISTS kx CASCADE;
+  CREATE SCHEMA kx;
 
--- roda a receita B
-SELECT lib.r008b_seg(); -- (receita B) demora mais de 20 minutos
+  CREATE TABLE kx.eixologr_cod
+  (
+    gid bigint NOT NULL
+  , cod bigint
+  , tipo text
+  , geom geometry
+  , PRIMARY KEY ( gid )
+  );
+  CREATE INDEX ON kx.eixologr_cod USING GIST( geom );
+
+  CREATE TABLE kx.lote_viz
+  (
+    id serial
+  , a_gid integer
+  , b_gid integer
+  , viz_tipo float
+  , relcod varchar
+  , err varchar
+  , PRIMARY KEY ( a_gid, b_gid )
+  );
+
+  CREATE TABLE kx.quadraccvia
+  (
+    gid integer NOT NULL
+  , geom geometry
+  , cod_vias integer[]
+  , quadraccvia_gid bigint DEFAULT NULL
+  , PRIMARY KEY ( gid )
+  );
+  COMMENT ON COLUMN kx.quadraccvia.quadraccvia_gid IS 'Atributo auxiliar do cache de quadras.';
+  CREATE INDEX ON kx.quadraccvia USING GIST( geom );
+
+  CREATE TABLE kx.quadrasc
+  (
+    gid integer
+  , gid_lotes integer[]
+  , err text DEFAULT NULL
+  , quadraccvia_gid bigint DEFAULT NULL
+  , geom geometry
+  , PRIMARY KEY ( gid )
+  );
+  CREATE INDEX ON kx.quadrasc USING GIST( geom );
+  -- Receita 008, obtenção de quadras a partir da malha viária:
+  SELECT lib.r008a_quadra(); -- (receita A) demora alguns minutos
+  -- roda a receita B
+--  SELECT lib.r008b_seg(); -- (receita B) demora mais de 20 minutos
 
 -- falta gerador de quadraccvia_simplface??
 
 -- -- -- --
 -- Receita 008, obtenção de quadra sem calçada e sua rotulação nos lotes:
 -- http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R009
-SELECT lib.kxrefresh_quadrasc(); -- demora ??
+--SELECT lib.kxrefresh_quadrasc( 1.0, 2, false, false, true, false ); -- demora ??
+SELECT lib.kxrefresh_quadrasc();
 -- pode rodar com 
 --   [19757] psql -U alegrete -h localhost -c "SELECT lib.r008b_seg(0.15,1.0);" &
 
@@ -79,3 +121,4 @@ SELECT lib.kxrefresh_quadrasc(); -- demora ??
  
 **/
 
+COMMIT;
