@@ -25,20 +25,22 @@ BEGIN
 END;
 $BODY$  language PLpgSQL IMMUTABLE;
 
-CREATE OR REPLACE FUNCTION lib.column_exists( -- NEW
-  -- 
-  -- Check if a column exists in a table. 
-  -- 
-  p_colname varchar,  -- column name
-  p_tname varchar,             -- table name
-  p_schema varchar DEFAULT 'public'  -- schema name
-) RETURNS BOOLEAN AS $func$
-  SELECT n::int::BOOLEAN
-  FROM (
-     SELECT COUNT(*) AS n FROM information_schema.COLUMNS -- coalesce pau, contaminado por null
-     WHERE column_name=$1 AND table_schema=$3 AND table_name=$2
-  ) AS t;
-$func$ LANGUAGE SQL IMMUTABLE;
+CREATE OR REPLACE FUNCTION lib.column_exists(p_colname character varying, p_tname character varying )
+RETURNS boolean AS
+$BODY$
+  SELECT lib.column_exists( p_colname, p_tname, 'public'::varchar );
+$BODY$
+LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION lib.column_exists(p_colname character varying, p_tname character varying, p_schema character varying )
+  RETURNS boolean AS
+$BODY$
+  SELECT count(*) > 0
+  FROM information_schema.COLUMNS
+  WHERE column_name = $1 AND table_schema = $3 AND table_name = $2;
+$BODY$
+  LANGUAGE sql IMMUTABLE
+  COST 100;
 
 -- -- --
 -- especificas
