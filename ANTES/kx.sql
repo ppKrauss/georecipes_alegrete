@@ -56,6 +56,17 @@ BEGIN;
   , PRIMARY KEY ( gid )
   );
   CREATE INDEX ON kx.quadrasc USING GIST( geom );
+
+  CREATE OR REPLACE VIEW kx.vw_lote_viz_err AS
+    SELECT gid, array_to_string( array_agg( CASE WHEN gid = a_gid THEN b_gid ELSE a_gid END || ' ' || err ), '; ' ) AS err
+    FROM (
+      SELECT unnest( ARRAY[ a_gid, b_gid ] ) AS gid, a_gid, b_gid, err 
+      FROM kx.lote_viz 
+      WHERE err > '' AND viz_tipo = 0 
+      ORDER BY 1
+    ) AS t
+    GROUP BY gid
+    ORDER BY 1;
   -- Receita 008, obtenção de quadras a partir da malha viária:
   SELECT lib.r008a_quadra(); -- (receita A) demora alguns minutos
   -- roda a receita B
@@ -66,8 +77,8 @@ BEGIN;
 -- -- -- --
 -- Receita 008, obtenção de quadra sem calçada e sua rotulação nos lotes:
 -- http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R009
---SELECT lib.kxrefresh_quadrasc( 1.0, 2, false, false, true, false ); -- demora ??
-SELECT lib.kxrefresh_quadrasc();
+SELECT lib.kxrefresh_quadrasc( 1.0, 2, true, false, true ); -- demora ??
+--SELECT lib.kxrefresh_quadrasc();
 -- pode rodar com 
 --   [19757] psql -U alegrete -h localhost -c "SELECT lib.r008b_seg(0.15,1.0);" &
 
