@@ -24,6 +24,20 @@ BEGIN;
   );
   CREATE INDEX ON kx.eixologr_cod USING GIST( geom );
 
+  CREATE TABLE kx.lote_seg
+  (
+    gid integer
+  , gid_lote integer
+  , chave integer
+  , gid_quadrasc integer
+  , id_seg integer
+  , id_via integer NOT NULL DEFAULT 0
+  ,	isexterno boolean DEFAULT false -- a maioria é interno, exceto se fronteira com quadrasc
+  , seg geometry -- TODO discover geometry type and srid
+  , PRIMARY KEY ( gid )
+  );
+  CREATE INDEX ON kx.lote_seg USING GIST( seg );
+
   CREATE TABLE kx.lote_viz
   (
     id serial
@@ -57,6 +71,20 @@ BEGIN;
   );
   CREATE INDEX ON kx.quadrasc USING GIST( geom );
 
+  CREATE TABLE kx.quadrasc_simplseg (
+    gid integer
+  , gid_quadrasc integer -- unica por construcao
+  , quadra_gids integer--  quadras, pode ser mais de uma quando bug
+  , id_seg integer
+  , isexterno boolean DEFAULT NULL
+  , isexterno_fator integer DEFAULT NULL
+  , id_via integer DEFAULT NULL
+  , seg geometry -- TODO discover type srid
+  , PRIMARY KEY ( gid )
+  , UNIQUE ( gid_quadrasc )
+  );
+  CREATE INDEX ON kx.quadrasc_simplseg USING GIST( seg );
+
   CREATE OR REPLACE VIEW kx.vw_lote_viz_err AS
     SELECT gid, array_to_string( array_agg( CASE WHEN gid = a_gid THEN b_gid ELSE a_gid END || ' ' || err ), '; ' ) AS err
     FROM (
@@ -77,15 +105,15 @@ BEGIN;
 -- -- -- --
 -- Receita 008, obtenção de quadra sem calçada e sua rotulação nos lotes:
 -- http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R009
-SELECT lib.kxrefresh_quadrasc( 1.0, 2, true, false, true ); -- demora ??
+--select lib.kxrefresh_lote_viz();
+  SELECT lib.kxrefresh_quadrasc( 1.0, 2, true, false, true ); -- demora ??
 --SELECT lib.kxrefresh_quadrasc();
 -- pode rodar com 
 --   [19757] psql -U alegrete -h localhost -c "SELECT lib.r008b_seg(0.15,1.0);" &
 
--- DEPOIS
 ---  ... select lib.r008_refresh_quadraccvia? mudou de nome?
---   ?psql -U alegrete -h localhost -c "SELECT lib.kxrefresh_lote_seg();" &
---   psql -U alegrete -h localhost -c "SELECT lib.kxrefresh_quadrasc(1.0);"  &
+  SELECT lib.kxrefresh_lote_seg();
+  SELECT lib.kxrefresh_quadrasc( 1.0 );
 
 /* complementos da funcao 008b incompleta: precisa testar e incluir na função devagar até fazer funcionar.
 
