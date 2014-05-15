@@ -1026,25 +1026,26 @@ END;
 $F$ LANGUAGE plpgsql IMMUTABLE;
 
 ---- receita b
-CREATE FUNCTION lib.r008_err_exists(text) RETURNS text 
+CREATE FUNCTION lib.table_not_empty(text) RETURNS text 
 AS $F$  
-   -- Interrompe processo ou retorna contagem da tabela.
 DECLARE
-   v_n integer; -- counter
+   v_n integer;
 BEGIN
-   IF lib.regclass_exists($1) THEN 
-       EXECUTE ('SELECT count(*) FROM '|| $1) INTO v_n;
-       IF v_n >0 THEN
-           RETURN  E'\n Usando '|| v_n ||' registros de '||$1;
-       ELSE  
-           Raise Exception 'Preparar % não-vazio com lib.r008a_quadra()',$1;
-       END IF;
-   ELSE
-       Raise Exception 'Falta criar % com lib.r008a_quadra()',$1;
-   END IF;
+  IF lib.table_exists($1) THEN 
+    EXECUTE 'SELECT count(*) FROM ' || $1 INTO v_n;
+    IF v_n > 0 THEN
+      RETURN  E'\n Usando '|| v_n ||' registros de '||$1;
+    ELSE  
+      RAISE EXCEPTION 'Preparar % não-vazio com lib.r008a_quadra()',$1;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Falta criar % com lib.r008a_quadra()',$1;
+  END IF;
 END;
-$F$ LANGUAGE PLpgSQL IMMUTABLE;
- 
+$F$ LANGUAGE PLpgSQL VOLATILE;
+COMMENT ON FUNCTION lib.table_not_empty(text) IS 'Check if given table name exists and is not empty.
+
+Throws EXCEPTION if table name does not exists on current database or if table has no rows.';
 
 CREATE OR REPLACE  FUNCTION lib.r008b_seg(
 	p_width_via double precision DEFAULT 0.5, 
@@ -1062,8 +1063,8 @@ BEGIN
    PERFORM lib.r008_err_range($3, 3, 0.0, 1000.0, 'area mínima da quadra');
    PERFORM lib.r008_err_range($4, 4, 0.001, 1.0,  'fator de cobertura mínima');
    PERFORM lib.r008_err_range($5, 5, 0.0, 10.0,   'step na simplificação dos segmentos');
-   v_msg := v_msg || lib.r008_err_exists('kx.eixologr_cod');
-   v_msg := v_msg || lib.r008_err_exists('kx.quadraccvia');
+   v_msg := v_msg || lib.table_not_empty('kx.eixologr_cod');
+   v_msg := v_msg || lib.table_not_empty('kx.quadraccvia');
  
    -- 1. segmentação da quadraccvia:
    DROP TABLE IF EXISTS kx.quadraccvia_simplseg;
