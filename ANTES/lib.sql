@@ -447,10 +447,10 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
    SELECT lib.trgr_labeler(p_alertrig) INTO aux;
    ret:=ret||E'\n -- Rotulação de lotes realizada, depois '||aux||' rotulos preliminares';
  
-   UPDATE fonte.lote SET kx_quadrasc_id=NULL;
-   UPDATE fonte.lote SET kx_quadrasc_id=t.label
+   UPDATE fonte.g_lote SET kx_quadrasc_id= 0;
+   UPDATE fonte.g_lote SET kx_quadrasc_id=t.label
    FROM lib.trgr_labeler_out t 
-   WHERE t.id=lote.gid;
+   WHERE t.id= gid;
    ret:=ret||E'\n -- Campo kx_quadrasc_id de fonte.lote atualizado com rotulos de quadra';
  
    IF (p_drop_lote_viz) THEN -- opcional
@@ -459,27 +459,22 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
  
    IF (p_gerapol) THEN 
      -- geração dos polígonos de quadrasc: --
-     DROP TABLE IF EXISTS kx.quadrasc;
-     CREATE TABLE kx.quadrasc AS
+     TRUNCATE kx.quadrasc;
+     INSERT INTO kx.quadrasc
        SELECT kx_quadrasc_id AS gid, 
               array_agg(gid) AS gid_lotes,  NULL::text AS err,
-              --  quadra_gid bigint,  -- LIXO
               NULL::bigint AS quadraccvia_gid,  -- IMPORTANTE
               ST_Buffer( ST_Union(ST_Buffer(the_geom,p_distolviz)), -p_distolviz) AS the_geom
-       FROM fonte.lote
+       FROM fonte.g_lote
        WHERE kx_quadrasc_id IS NOT NULL
        GROUP BY kx_quadrasc_id;
-     ALTER TABLE kx.quadrasc ADD PRIMARY KEY (gid);
-     ret:=ret||E'\n -- tabela kx.quadrasc criada';
+     ret:=ret||E'\n -- tabela kx.quadrasc iniciada';
    END IF;
  
    IF lib.table_exists('kx.quadraccvia') THEN  -- ver Recipe-008
-      IF NOT( lib.column_exists('quadraccvia_gid','quadraccvia','kx') ) THEN
-           ALTER TABLE kx.quadrasc ADD COLUMN quadraccvia_gid bigint;
-      END IF;
-      UPDATE kx.quadrasc SET quadraccvia_gid=NULL;
+      UPDATE kx.quadrasc SET quadraccvia_gid = NULL;
       -- QuadraSC com área 80% contida em QuadraCCvia:
-      UPDATE kx.quadrasc SET quadraccvia_gid=t.quadraccvia_gid
+      UPDATE kx.quadrasc SET quadraccvia_gid = t.quadraccvia_gid
       FROM (
          SELECT q.gid, cc.gid AS quadraccvia_gid
          FROM kx.quadrasc q INNER JOIN kx.quadraccvia cc ON cc.geom && q.geom 
@@ -937,8 +932,8 @@ BEGIN
    PERFORM lib.in_range($4, 4, 0.001, 2.0,    'comprimento para detectar via como parte');
  
    -- 1. PREPARO: divisores de quadracc, dado por "malha viária" completa e conexa
-   DROP TABLE  IF EXISTS kx.eixologr_cod;
-   CREATE TABLE kx.eixologr_cod AS -- todas as fronteiras de quadra e seus códigos 
+   TRUNCATE kx.eixologr_cod;
+   INSERT INTO kx.eixologr_cod -- todas as fronteiras de quadra e seus códigos 
      WITH vias AS (
    	(SELECT 0 AS gid, 	-- ## -- rodovias rotuladas, agregadas por código
    		codlogr::integer AS cod,
@@ -981,20 +976,15 @@ BEGIN
    	       SELECT ST_setSRID( ST_Extent(geom), (SELECT ST_SRID(geom) FROM g_lote LIMIT 1) ) AS geom 
    	       FROM fonte.g_lote
    	   ) AS t;
-   ALTER TABLE kx.eixologr_cod ADD PRIMARY KEY (gid);
    v_msg := v_msg || E'\n kx.eixologr_cod populada com '|| (SELECT count(*) FROM kx.eixologr_cod) ||' registros';
- 
-   -- 2. Construção principal: (old "quadracc_byvias")
-   DROP TABLE  IF EXISTS kx.quadraccvia;
-   CREATE TABLE kx.quadraccvia AS 
-   SELECT (st_dump).path[1] AS gid, (st_dump).geom,
-   	NULL::int[] AS cod_vias
-   FROM (
-        SELECT ST_Dump(ST_Polygonize(geom)) -- faz a magica
-        FROM (SELECT ST_Union(geom) AS geom FROM kx.eixologr_cod) mergedlines
-   ) polys;
-   ALTER TABLE kx.quadraccvia ADD PRIMARY KEY (gid);
- 
+  -- 2. Construção principal: (old "quadracc_byvias")
+  TRUNCATE kx.quadraccvia;
+  INSERT INTO kx.quadraccvia
+    SELECT (st_dump).path[1] AS gid, (st_dump).geom, NULL::int[] AS cod_vias
+    FROM (
+      SELECT ST_Dump( ST_Polygonize( geom ) )
+      FROM ( SELECT ST_Union(geom) AS geom FROM kx.eixologr_cod ) mergedlines
+    ) polys;
    -- 3. Obtenção dos códigos das vias de entorno, e redução dos polígnos:
    UPDATE kx.quadraccvia
     SET cod_vias=t.cods,
