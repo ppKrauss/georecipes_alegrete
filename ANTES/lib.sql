@@ -50,7 +50,8 @@ LANGUAGE sql;
 -- -- --
 -- especificas
 
-CREATE FUNCTION lib.kxrefresh_lote() RETURNS void  AS $F$
+CREATE FUNCTION lib.kxrefresh_lote()
+RETURNS void AS $F$
 	-- refresh do campo cache da tabela-fonte
 	UPDATE fonte.g_lote 
 	SET kx_quadra_gid = qgid
@@ -60,7 +61,7 @@ CREATE FUNCTION lib.kxrefresh_lote() RETURNS void  AS $F$
 		  WHERE st_intersects(l.geom,q.geom)
 	) AS quadra_lote 
 	WHERE lgid=g_lote.gid;
-$F$ language SQL;
+$F$ LANGUAGE SQL;
 
 CREATE OR REPLACE FUNCTION lib.r016_parallelroute_ofpolygon(
   p_geom     geometry, -- polygon,
@@ -112,7 +113,7 @@ BEGIN
    '  FROM '|| p_tvias ||' e INNER JOIN kx.temp_r016b AS t'||
    '    ON t.geom && e.geom'||
    '   ) AS t2 WHERE geom IS NOT NULL AND st_length(geom)>'|| p_step;
-   IF lib.regclass_exists('kx.temp_r016a') THEN
+   IF lib.table_exists('kx.temp_r016a') THEN
        DELETE FROM kx.temp_r016a;
        EXECUTE 'INSERT INTO kx.temp_r016a '||v_exeaux;
    ELSE
@@ -472,7 +473,7 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
      ret:=ret||E'\n -- tabela kx.quadrasc criada';
    END IF;
  
-   IF lib.regclass_exists('kx.quadraccvia') THEN  -- ver Recipe-008
+   IF lib.table_exists('kx.quadraccvia') THEN  -- ver Recipe-008
       IF NOT( lib.column_exists('quadraccvia_gid','quadraccvia','kx') ) THEN
            ALTER TABLE kx.quadrasc ADD COLUMN quadraccvia_gid bigint;
       END IF;
