@@ -419,72 +419,63 @@ $f$ language SQL IMMUTABLE;
 
 --- OFICIAL
 CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
-    -- Ver documentação em
-    -- http://gauss.serveftp.com/colabore/index.php/Prj:Geoprocessing_Recipes/R009
-    --
-    p_distolviz float DEFAULT 1.0,  -- distância (m) del tol. para vizinho. (0 para não tolerar)
-    p_alertrig integer DEFAULT 2,   -- parâmetro de alert no trgr_labeler()
-    p_gerapol BOOLEAN DEFAULT true, -- true se for para gerar kx.quadrasc com polígonos
-    p_redolote_viz BOOLEAN DEFAULT true, -- true para refazer tudo (ver tambem esquema errsig) em kx.lote_viz
-    p_out_errsig   BOOLEAN DEFAULT true, -- true se for para, junto com kx.lote_viz, gerar erros em errsig 
-    p_drop_lote_viz BOOLEAN DEFAULT false -- true se for para apagar kx.lote_viz depois de usada.
+  -- Ver documentação em
+  -- http://gauss.serveftp.com/colabore/index.php/Prj:Geoprocessing_Recipes/R009
+  --
+  p_distolviz float DEFAULT 1.0,  -- distância (m) del tol. para vizinho. (0 para não tolerar)
+  p_alertrig integer DEFAULT 2,   -- parâmetro de alert no trgr_labeler()
+  p_gerapol BOOLEAN DEFAULT true, -- true se for para gerar kx.quadrasc com polígonos
+  p_redolote_viz BOOLEAN DEFAULT true, -- true para refazer tudo (ver tambem esquema errsig) em kx.lote_viz
+  p_out_errsig   BOOLEAN DEFAULT true, -- true se for para, junto com kx.lote_viz, gerar erros em errsig 
 ) RETURNS text AS $func$
-   DECLARE
-     aux int;
-     ret text;
-   BEGIN
- 
+  DECLARE
+    aux int;
+    ret text;
+  BEGIN 
    IF p_redolote_viz THEN 
       SELECT lib.kxrefresh_lote_viz(p_distolviz,2.0,p_out_errsig) INTO ret; -- cria ou refaz kx.lote_viz e cia.
    END IF;
- 
-   ret:=ret||E'\n -- ... Rodando kxrefresh_quadrasc ...';
+   ret := ret || E'\n -- ... Rodando kxrefresh_quadrasc ...';
  
    -- rotulação: --
-   DELETE FROM lib.trgr_labeler_in;
-   INSERT INTO lib.trgr_labeler_in(id1,id2)
-          SELECT a_gid, b_gid FROM kx.lote_viz;
-   SELECT lib.trgr_labeler(p_alertrig) INTO aux;
-   ret:=ret||E'\n -- Rotulação de lotes realizada, depois '||aux||' rotulos preliminares';
+  DELETE FROM lib.trgr_labeler_in;
+  INSERT INTO lib.trgr_labeler_in(id1,id2)
+    SELECT a_gid, b_gid FROM kx.lote_viz;
+  SELECT lib.trgr_labeler(p_alertrig) INTO aux;
+  ret := ret || E'\n -- Rotulação de lotes realizada, depois '||aux||' rotulos preliminares';
  
-   UPDATE fonte.g_lote SET kx_quadrasc_id= 0;
-   UPDATE fonte.g_lote SET kx_quadrasc_id=t.label
-   FROM lib.trgr_labeler_out t 
-   WHERE t.id= gid;
-   ret:=ret||E'\n -- Campo kx_quadrasc_id de fonte.lote atualizado com rotulos de quadra';
+  UPDATE fonte.g_lote SET kx_quadrasc_id= 0;
+  UPDATE fonte.g_lote SET kx_quadrasc_id=t.label
+  FROM lib.trgr_labeler_out t 
+  WHERE t.id= gid;
+  ret := ret || E'\n -- Campo kx_quadrasc_id de fonte.g_lote atualizado com rotulos de quadra';
+  
+  IF (p_gerapol) THEN 
+    -- geração dos polígonos de quadrasc: --
+    TRUNCATE kx.quadrasc;
+    INSERT INTO kx.quadrasc
+    SELECT kx_quadrasc_id AS gid, 
+      array_agg(gid) AS gid_lotes,  NULL::text AS err,
+      NULL::bigint AS quadraccvia_gid,  -- IMPORTANTE
+      ST_Buffer( ST_Union(ST_Buffer(the_geom,p_distolviz)), -p_distolviz) AS the_geom
+    FROM fonte.g_lote
+    WHERE kx_quadrasc_id IS NOT NULL
+    GROUP BY kx_quadrasc_id;
+    ret := ret || E'\n -- tabela kx.quadrasc iniciada';
+  END IF;
  
-   IF (p_drop_lote_viz) THEN -- opcional
-     DROP TABLE kx.lote_viz; -- já usou, mas pode querer usar com validações!
-   END IF;
+  UPDATE kx.quadrasc SET quadraccvia_gid = NULL;
+  -- QuadraSC com área 80% contida em QuadraCCvia:
+  UPDATE kx.quadrasc SET quadraccvia_gid = t.quadraccvia_gid
+  FROM (
+     SELECT q.gid, cc.gid AS quadraccvia_gid
+     FROM kx.quadrasc q INNER JOIN kx.quadraccvia cc ON cc.geom && q.geom 
+          AND ST_Intersects(cc.geom,q.geom) AND ST_Area(ST_Intersection(cc.geom,q.geom))/ST_Area(q.geom)>0.8
+  ) t 
+  WHERE t.gid = quadrasc.gid;
  
-   IF (p_gerapol) THEN 
-     -- geração dos polígonos de quadrasc: --
-     TRUNCATE kx.quadrasc;
-     INSERT INTO kx.quadrasc
-       SELECT kx_quadrasc_id AS gid, 
-              array_agg(gid) AS gid_lotes,  NULL::text AS err,
-              NULL::bigint AS quadraccvia_gid,  -- IMPORTANTE
-              ST_Buffer( ST_Union(ST_Buffer(the_geom,p_distolviz)), -p_distolviz) AS the_geom
-       FROM fonte.g_lote
-       WHERE kx_quadrasc_id IS NOT NULL
-       GROUP BY kx_quadrasc_id;
-     ret:=ret||E'\n -- tabela kx.quadrasc iniciada';
-   END IF;
- 
-   IF lib.table_exists('kx.quadraccvia') THEN  -- ver Recipe-008
-      UPDATE kx.quadrasc SET quadraccvia_gid = NULL;
-      -- QuadraSC com área 80% contida em QuadraCCvia:
-      UPDATE kx.quadrasc SET quadraccvia_gid = t.quadraccvia_gid
-      FROM (
-         SELECT q.gid, cc.gid AS quadraccvia_gid
-         FROM kx.quadrasc q INNER JOIN kx.quadraccvia cc ON cc.geom && q.geom 
-              AND ST_Intersects(cc.geom,q.geom) AND ST_Area(ST_Intersection(cc.geom,q.geom))/ST_Area(q.geom)>0.8
-      ) t 
-      WHERE t.gid=quadrasc.gid; -- ~750 de 800, pois nem todas estão contidas
-   END IF;
- 
-   RETURN ret;
-   END;
+  RETURN ret;
+ END;
 $func$ LANGUAGE plpgsql VOLATILE;
 
 -- -- -- --
