@@ -5,32 +5,31 @@
 DO
 $DO$
 BEGIN
-
+  IF count( * ) = 0
+    FROM information_schema.schemata
+    WHERE
+      schema_name = 'fonte' THEN
+    RAISE EXCEPTION 'Esquema fonte ausente. Rodar fonte.sql antes deste script.';
+  END IF;
+  
   DROP SCHEMA IF EXISTS lib CASCADE;
   CREATE schema lib;
--- -- --
--- gerais uteis (LEGADOS):
 
-CREATE OR REPLACE FUNCTION lib.regclass_exists(p_tname character varying)
+CREATE OR REPLACE FUNCTION lib.table_exists( p_tname character varying )
   RETURNS boolean AS
 $BODY$
-   -- verifica se uma tabela existe
-DECLARE
-  tmp regclass;
 BEGIN
-	tmp := p_tname::regclass; -- do nothing, only parsing regclass
-	RETURN true;
-        EXCEPTION WHEN SQLSTATE '3F000' THEN
-	RETURN false;
+  BEGIN
+    PERFORM p_tname::regclass;
+    RETURN true;
+  EXCEPTION
+  WHEN SQLSTATE '3F000' THEN
+  WHEN SQLSTATE '42P01' THEN
+    RETURN false;
+  END;
 END;
-$BODY$  language PLpgSQL IMMUTABLE;
-
-CREATE OR REPLACE FUNCTION lib.column_exists(p_colname character varying, p_tname character varying )
-RETURNS boolean AS
 $BODY$
-  SELECT lib.column_exists( p_colname, p_tname, 'public'::varchar );
-$BODY$
-LANGUAGE sql;
+LANGUAGE PLpgSQL IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION lib.column_exists(p_colname character varying, p_tname character varying, p_schema character varying )
   RETURNS boolean AS
@@ -42,6 +41,12 @@ $BODY$
   LANGUAGE sql IMMUTABLE
   COST 100;
 
+CREATE OR REPLACE FUNCTION lib.column_exists(p_colname character varying, p_tname character varying )
+RETURNS boolean AS
+$BODY$
+  SELECT lib.column_exists( p_colname, p_tname, 'public'::varchar );
+$BODY$
+LANGUAGE sql;
 -- -- --
 -- especificas
 
