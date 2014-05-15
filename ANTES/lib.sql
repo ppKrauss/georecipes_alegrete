@@ -313,7 +313,6 @@ CREATE TABLE lib.trgr_labeler_out (
 CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
    p_addprox float DEFAULT 1.5,     -- >0 considera lotes como vizinhos mesmo se disjuntos
    p_areapoeira float DEFAULT 2.0,  -- define poeira digital em m2
-   p_out_errsig BOOLEAN  DEFAULT false,   -- true cria tabelas do esquema errsig
    p_out_verbose BOOLEAN DEFAULT false -- true cria NOTICEs relatando quantidades inseridas e demoras
 ) RETURNS text AS $func$
    DECLARE
@@ -366,29 +365,27 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
       ret:=ret||E'\n-- Atualizada a tabela kx.lote_viz com vizinhos de distancia '||$1;
    END IF;
  
-   ret:=ret||E'\n-- View kx.vw_lote_viz_err';
-   SELECT COUNT(*) INTO n FROM kx.vw_lote_viz_err;
-   IF p_out_errsig AND n>0 THEN 
-      DROP TABLE IF EXISTS errsig.lote_sobreposto_lotes;
-      CREATE TABLE errsig.lote_sobreposto_lotes AS 
-          SELECT v.gid, v.err, f.geom 
-          FROM kx.vw_lote_viz_err v INNER JOIN fonte.g_lote f ON f.gid=v.gid;
-      ALTER TABLE errsig.lote_sobreposto_lotes ADD PRIMARY KEY (gid);
+  ret:=ret||E'\n-- View kx.vw_lote_viz_err';
+  SELECT COUNT(*) INTO n FROM kx.vw_lote_viz_err;
+    IF n > 0 THEN 
+      DELETE FROM errsig.lote_sobreposto_lotes;
+      INSERT INTO errsig.lote_sobreposto_lotes ( gid, err, geom )
+        SELECT v.gid, v.err, f.geom 
+        FROM kx.vw_lote_viz_err v INNER JOIN fonte.g_lote f ON f.gid = v.gid;
  
-      DROP TABLE IF EXISTS errsig.lote_sobreposto_erros;
-      CREATE TABLE errsig.lote_sobreposto_erros AS
-          WITH pares AS (
-            SELECT a.gid AS a_gid, b.gid AS b_gid, 0 AS viz_tipo,  
-                   a.geom AS a_geom, b.geom AS b_geom
-            FROM fonte.g_lote a INNER JOIN  fonte.g_lote b ON a.gid>b.gid
-          ) 
-          SELECT v.id AS gid, v.err, ST_Intersection(a_geom, b_geom) AS geom
-          FROM kx.lote_viz v INNER JOIN pares p ON v.a_gid=p.a_gid AND v.b_gid=p.b_gid;
-      ALTER TABLE errsig.lote_sobreposto_erros ADD PRIMARY KEY (gid);
+      DELETE FROM errsig.lote_sobreposto_erros;
+      INSERT INTO errsig.lote_sobreposto_erros ( gid, err, geom )
+        WITH pares AS (
+          SELECT a.gid AS a_gid, b.gid AS b_gid, 0 AS viz_tipo,  
+                 a.geom AS a_geom, b.geom AS b_geom
+          FROM fonte.g_lote a INNER JOIN  fonte.g_lote b ON a.gid>b.gid
+        ) 
+        SELECT v.id AS gid, v.err, ST_Intersection(a_geom, b_geom) AS geom
+        FROM kx.lote_viz v INNER JOIN pares p ON v.a_gid=p.a_gid AND v.b_gid=p.b_gid;
       ret:=ret||E'\n-- ERROS encontrados, mostrando em errsig.lote_sobreposto_lotes errsig.lote_sobreposto_erros';
-   ELSE 
-       ret:=ret||E'\n-- SEM ERROS!';
-   END IF;
+    ELSE 
+      ret:=ret||E'\n-- SEM ERROS!';
+    END IF;
    RETURN ret;
    END;
 $func$ language PLpgSQL VOLATILE;
@@ -422,7 +419,7 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
     ret text := '';
   BEGIN 
    IF p_redolote_viz THEN 
-      SELECT lib.kxrefresh_lote_viz(p_distolviz,2.0,p_out_errsig) INTO ret;
+      SELECT lib.kxrefresh_lote_viz( p_distolviz, 2.0 ) INTO ret;
    END IF;
    ret := ret || E'\n -- ... Rodando kxrefresh_quadrasc ...';
  
@@ -442,9 +439,8 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
   IF (p_gerapol) THEN 
     -- geração dos polígonos de quadrasc: --
     TRUNCATE kx.quadrasc;
-    INSERT INTO kx.quadrasc ( gid, gid_lotes, err, quadraccvia_gid, geom )
-    SELECT kx_quadrasc_id, array_agg(gid),  NULL::text, NULL::bigint,
-      ST_Buffer( ST_Union(ST_Buffer(geom,p_distolviz)), -p_distolviz)
+    INSERT INTO kx.quadrasc ( gid, gid_lotes, geom )
+    SELECT kx_quadrasc_id, array_agg(gid), ST_Buffer( ST_Union(ST_Buffer(geom,p_distolviz)), -p_distolviz)
     FROM fonte.g_lote
     WHERE kx_quadrasc_id IS NOT NULL
     GROUP BY kx_quadrasc_id;
