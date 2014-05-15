@@ -913,7 +913,7 @@ $func$ language PLpgSQL VOLATILE;
 -- receitas de http://gauss.serveftp.com/colabore/index.php?title=Prj:Geoprocessing_Recipes/R008
 --
 
-CREATE FUNCTION lib.r008_err_range(float,integer,float,float,text) RETURNS void AS $F$  
+CREATE FUNCTION lib.in_range(float,integer,float,float,text) RETURNS void AS $F$  
 BEGIN
    IF $1<$3 OR $1>$4 THEN
         Raise Exception 'Parametro #% (=%), %, fora de intervalo seguro',$2,$1,$5;
@@ -931,10 +931,10 @@ CREATE OR REPLACE FUNCTION lib.r008a_quadra(
 DECLARE
   v_msg    text:=format('Parametros width_via=%s, reduz=%s, area_min=%s',$1,$2,$3); -- mensagens de retorno
 BEGIN
-   PERFORM lib.r008_err_range($1, 1, 0.0,   5.0,    'meia largura da via');
-   PERFORM lib.r008_err_range($2, 2, 0.0,   5.0,    'raio do buffer de redução');
-   PERFORM lib.r008_err_range($3, 3, 0.001, 1000.0, 'area mínima da quadra');
-   PERFORM lib.r008_err_range($4, 4, 0.001, 2.0,    'comprimento para detectar via como parte');
+   PERFORM lib.in_range($1, 1, 0.0,   5.0,    'meia largura da via');
+   PERFORM lib.in_range($2, 2, 0.0,   5.0,    'raio do buffer de redução');
+   PERFORM lib.in_range($3, 3, 0.001, 1000.0, 'area mínima da quadra');
+   PERFORM lib.in_range($4, 4, 0.001, 2.0,    'comprimento para detectar via como parte');
  
    -- 1. PREPARO: divisores de quadracc, dado por "malha viária" completa e conexa
    DROP TABLE  IF EXISTS kx.eixologr_cod;
@@ -1059,11 +1059,11 @@ CREATE OR REPLACE  FUNCTION lib.r008b_seg(
 DECLARE
    v_msg text := format('Parametros width_via=%s, reduz=%s, area_min=%s, cobertura=%s, simplft=%s',$1,$2,$3,$4,$5);
 BEGIN
-   PERFORM lib.r008_err_range($1, 1, 0.0, 5.0,    'largura da via');
-   PERFORM lib.r008_err_range($2, 2, 0.0, 5.0,    'raio do buffer de redução');
-   PERFORM lib.r008_err_range($3, 3, 0.0, 1000.0, 'area mínima da quadra');
-   PERFORM lib.r008_err_range($4, 4, 0.001, 1.0,  'fator de cobertura mínima');
-   PERFORM lib.r008_err_range($5, 5, 0.0, 10.0,   'step na simplificação dos segmentos');
+   PERFORM lib.in_range($1, 1, 0.0, 5.0,    'largura da via');
+   PERFORM lib.in_range($2, 2, 0.0, 5.0,    'raio do buffer de redução');
+   PERFORM lib.in_range($3, 3, 0.0, 1000.0, 'area mínima da quadra');
+   PERFORM lib.in_range($4, 4, 0.001, 1.0,  'fator de cobertura mínima');
+   PERFORM lib.in_range($5, 5, 0.0, 10.0,   'step na simplificação dos segmentos');
    v_msg := v_msg || lib.table_not_empty('kx.eixologr_cod');
    v_msg := v_msg || lib.table_not_empty('kx.quadraccvia');
  
