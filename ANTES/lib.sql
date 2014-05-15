@@ -426,14 +426,14 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
   p_alertrig integer DEFAULT 2,   -- parâmetro de alert no trgr_labeler()
   p_gerapol BOOLEAN DEFAULT true, -- true se for para gerar kx.quadrasc com polígonos
   p_redolote_viz BOOLEAN DEFAULT true, -- true para refazer tudo (ver tambem esquema errsig) em kx.lote_viz
-  p_out_errsig   BOOLEAN DEFAULT true, -- true se for para, junto com kx.lote_viz, gerar erros em errsig 
+  p_out_errsig   BOOLEAN DEFAULT true -- true se for para, junto com kx.lote_viz, gerar erros em errsig 
 ) RETURNS text AS $func$
   DECLARE
     aux int;
-    ret text;
+    ret text := '';
   BEGIN 
    IF p_redolote_viz THEN 
-      SELECT lib.kxrefresh_lote_viz(p_distolviz,2.0,p_out_errsig) INTO ret; -- cria ou refaz kx.lote_viz e cia.
+      SELECT lib.kxrefresh_lote_viz(p_distolviz,2.0,p_out_errsig) INTO ret;
    END IF;
    ret := ret || E'\n -- ... Rodando kxrefresh_quadrasc ...';
  
@@ -453,11 +453,9 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
   IF (p_gerapol) THEN 
     -- geração dos polígonos de quadrasc: --
     TRUNCATE kx.quadrasc;
-    INSERT INTO kx.quadrasc
-    SELECT kx_quadrasc_id AS gid, 
-      array_agg(gid) AS gid_lotes,  NULL::text AS err,
-      NULL::bigint AS quadraccvia_gid,  -- IMPORTANTE
-      ST_Buffer( ST_Union(ST_Buffer(the_geom,p_distolviz)), -p_distolviz) AS the_geom
+    INSERT INTO kx.quadrasc ( gid, gid_lotes, err, quadraccvia_gid, geom )
+    SELECT kx_quadrasc_id, array_agg(gid),  NULL::text, NULL::bigint,
+      ST_Buffer( ST_Union(ST_Buffer(geom,p_distolviz)), -p_distolviz)
     FROM fonte.g_lote
     WHERE kx_quadrasc_id IS NOT NULL
     GROUP BY kx_quadrasc_id;
