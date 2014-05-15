@@ -312,15 +312,14 @@ CREATE TABLE lib.trgr_labeler_out (
  
 CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_viz(
    p_addprox float DEFAULT 1.5,     -- >0 considera lotes como vizinhos mesmo se disjuntos
-   p_areapoeira float DEFAULT 2.0,  -- define poeira digital em m2
-   p_out_verbose BOOLEAN DEFAULT false -- true cria NOTICEs relatando quantidades inseridas e demoras
-) RETURNS text AS $func$
-   DECLARE
-     n integer;
-     ret  text;
-   BEGIN
- 
-   -- faltam IFs para CREATE SCHEMA errsig; CREATE SCHEMA kx;
+   p_areapoeira float DEFAULT 2.0  -- define poeira digital em m2
+)
+RETURNS text AS
+$func$
+DECLARE
+  n integer;
+  ret  text;
+BEGIN
    ret := E'\n-- Reiniciando a tabela kx.lote_viz';
    -- FALTARIA verificar se refresh já foi recentemente realizado e dependencias não foram atualizadas
    -- .. ai nao perde tempo atualizando denovo!
@@ -440,7 +439,7 @@ CREATE OR REPLACE FUNCTION lib.kxrefresh_quadrasc(
     -- geração dos polígonos de quadrasc: --
     TRUNCATE kx.quadrasc;
     INSERT INTO kx.quadrasc ( gid, gid_lotes, geom )
-    SELECT kx_quadrasc_id, array_agg(gid), ST_Buffer( ST_Union(ST_Buffer(geom,p_distolviz)), -p_distolviz)
+    SELECT kx_quadrasc_id, array_agg(gid), ST_Buffer( ST_Union( ST_Buffer(geom,p_distolviz)), -p_distolviz)
     FROM fonte.g_lote
     WHERE kx_quadrasc_id IS NOT NULL
     GROUP BY kx_quadrasc_id;
@@ -834,46 +833,48 @@ $func$ language PLpgSQL VOLATILE;
  
 CREATE OR REPLACE FUNCTION lib.kxrefresh_lote_seg(
 	BOOLEAN DEFAULT true  -- requisita refazimento de kx.lote_seg
-) RETURNS text AS $func$
-   BEGIN
-	IF ($1) THEN
-		DROP TABLE IF EXISTS kx.lote_seg;
-		CREATE TABLE kx.lote_seg AS 
+)
+RETURNS text AS
+$func$
+BEGIN
+  IF ($1) THEN
+    DELETE FROM kx.lote_seg;
+		INSERT INTO kx.lote_seg ( gid, gid_lote, chave, gid_quadrasc, id_seg, seg )
 		  WITH prepared_lotes AS (
-		      SELECT gid, chave, gid_quadrasc, geom,
-			generate_series(1, ST_NPoints(geom)-1) AS s_s,
-			generate_series(2, ST_NPoints(geom)  ) AS s_e
-		      FROM (
-			  SELECT gid, chave, kx_quadrasc_id AS gid_quadrasc,
-				(ST_Dump(ST_Boundary(geom))).geom -- sem simplifcar
-				-- (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,0.1)))).geom
+        SELECT gid, chave, gid_quadrasc, geom,
+          generate_series(1, ST_NPoints(geom)-1) AS s_s,
+          generate_series(2, ST_NPoints(geom)  ) AS s_e
+        FROM (
+          SELECT gid, chave, kx_quadrasc_id AS gid_quadrasc, (ST_Dump(ST_Boundary(geom))).geom -- sem simplifcar
 		  	  FROM fonte.g_lote
-		      ) AS linestrings
-		  ) SELECT dense_rank() over (ORDER BY gid,s_s) AS gid,
-			  gid AS gid_lote, chave, gid_quadrasc, s_s AS id_seg, 
-			  0::int AS id_via, 
-			  false AS isexterno, -- a maioria é interno, exceto se fronteira com quadrasc
+        ) AS linestrings
+		  )
+		  SELECT
+        dense_rank() over (ORDER BY gid,s_s) AS gid,
+			  gid AS gid_lote, chave, gid_quadrasc, s_s AS id_seg,
 			  ST_MakeLine(sp,ep) AS seg
-		    FROM (
-		       SELECT *, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep
-		       FROM prepared_lotes
-		    ) AS t; -- 89515 registros. Sem uso no idvia.
+      FROM (
+        SELECT *, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep
+        FROM prepared_lotes
+      ) AS t;
 	ELSE
-		UPDATE kx.lote_seg SET isexterno=false; -- default
-	END IF; -- kx.lote_seg criada
+		UPDATE kx.lote_seg SET isexterno = false;
+	END IF;
  
 	UPDATE kx.lote_seg -- demora!
-	SET isexterno=t.isexterno, id_via=t.id_via
+	SET isexterno = t.isexterno, id_via = t.id_via
 	FROM (
 	  SELECT s.gid, q.isexterno, q.id_via
-	  FROM kx.lote_seg s INNER JOIN kx.quadrasc_simplseg q 
-	     ON s.gid_quadrasc=q.gid_quadrasc AND  s.seg && ST_Buffer(q.seg,0.4) -- 0.4 é 2*simplify_factor
-	  WHERE ST_Length( ST_Intersection(s.seg,ST_Buffer(q.seg,0.4)) )/ST_Length(s.seg) > 0.6
+	  FROM 
+      kx.lote_seg s
+    INNER JOIN kx.quadrasc_simplseg q 
+    ON s.gid_quadrasc = q.gid_quadrasc AND s.seg && ST_Buffer( q.seg, 0.4 ) -- 0.4 é 2*simplify_factor
+	  WHERE ST_Length( ST_Intersection( s.seg, ST_Buffer(q.seg,0.4) ) )/ST_Length(s.seg) > 0.6
 	) AS t
 	WHERE t.gid=lote_seg.gid;
 
 	RETURN 'ok';
-   END;
+ END;
 $func$ language PLpgSQL VOLATILE;
  
 
@@ -1018,8 +1019,11 @@ CREATE OR REPLACE  FUNCTION lib.r008b_seg(
 	p_area_min double precision DEFAULT 10.0, 
 	p_cobertura double precision DEFAULT 0.51, 
 	p_simplfactor double precision DEFAULT 0.2
-) RETURNS text LANGUAGE plpgsql
-    AS $_$  -- retorna mensagem de erro
+)
+RETURNS text
+LANGUAGE plpgsql
+AS
+$_$  -- retorna mensagem de erro
 DECLARE
    v_msg text := format('Parametros width_via=%s, reduz=%s, area_min=%s, cobertura=%s, simplft=%s',$1,$2,$3,$4,$5);
 BEGIN
