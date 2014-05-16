@@ -1036,29 +1036,23 @@ BEGIN
    v_msg := v_msg || lib.table_not_empty('kx.quadraccvia');
  
    -- 1. segmentação da quadraccvia:
-   DROP TABLE IF EXISTS kx.quadraccvia_simplseg;
-   CREATE TABLE kx.quadraccvia_simplseg AS 
-      WITH prepared_quadras AS (  -- simplificando segmentos menores que 0.2m 
-          SELECT gid, cod_vias, geom,
-    	generate_series(1, ST_NPoints(geom)-1) AS s_s,
-    	generate_series(2, ST_NPoints(geom)  ) AS s_e
-          FROM (SELECT gid, cod_vias, (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,p_simplfactor)))).geom
-    	  FROM kx.quadraccvia
-          ) AS linestrings
-      )
-      SELECT 
-        row_number() OVER () AS gid,
-    	   gid AS gid_quadra, -- unica por construcao
-    	   s_s AS id_seg,             cod_vias,
-    	   NULL::bigint AS gid_via,   NULL::text AS tipo_via,
-    	   NULL::bigint AS gid_marginal,  -- quando existor vizinha
-    	   NULL::int AS cod,    -- eleger código da via (marginal ou nao, nulo ou nao)
-    	   ST_MakeLine(sp,ep) AS seg
-        FROM (
-           SELECT gid, cod_vias, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
-           FROM prepared_quadras
-        ) AS t;
-   ALTER TABLE kx.quadraccvia_simplseg ADD  primary key (gid); -- 73ms
+  DELETE FROM kx.quadraccvia_simplseg;
+  INSERT INTO kx.quadraccvia_simplseg ( gid, gid_quadra, id_seg, cod_vias, seg )
+  WITH prepared_quadras AS (  -- simplificando segmentos menores que 0.2m 
+    SELECT gid, cod_vias, geom,
+      generate_series(1, ST_NPoints(geom)-1) AS s_s,
+      generate_series(2, ST_NPoints(geom)  ) AS s_e
+    FROM (
+      SELECT gid, cod_vias, (ST_Dump(ST_Boundary(ST_SimplifyPreserveTopology(geom,p_simplfactor)))).geom
+      FROM kx.quadraccvia
+    ) AS linestrings
+  )
+  SELECT 
+    row_number() OVER (), gid, s_s, cod_vias, ST_MakeLine( sp, ep )
+  FROM (
+    SELECT gid, cod_vias, s_s, ST_PointN(geom, s_s) AS sp, ST_PointN(geom, s_e) AS ep, s_e
+    FROM prepared_quadras
+  ) AS t;
    -- NAO USAR CREATE INDEX ON kx.quadraccvia_simplseg USING GIST(seg); deu pau 
  
    -- 2. Encontrando a via (cod) associada a cada segmento:  (OTIMIZAR!)
