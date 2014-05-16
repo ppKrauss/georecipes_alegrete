@@ -60,6 +60,22 @@ BEGIN;
   COMMENT ON COLUMN kx.quadraccvia.quadraccvia_gid IS 'Atributo auxiliar do cache de quadras.';
   CREATE INDEX ON kx.quadraccvia USING GIST( geom );
 
+  CREATE TABLE kx.quadraccvia_simplseg
+  (
+    gid integer
+  , gid_quadra integer -- unica por construcao
+  , id_seg integer
+  , cod_vias integer
+  , gid_via bigint DEFAULT NULL
+  , tipo_via text DEFAULT NULL
+  , gid_marginal bigint DEFAULT NULL  -- quando existor vizinha
+  , cod integer DEFAULT NULL -- eleger código da via (marginal ou nao, nulo ou nao)
+  , seg geometry
+  , PRIMARY KEY ( gid )
+  , UNIQUE ( gid_quadra )
+  );
+  CREATE INDEX ON kx.quadraccvia_simplseg USING GIST( seg );
+
   CREATE TABLE kx.quadrasc
   (
     gid integer
